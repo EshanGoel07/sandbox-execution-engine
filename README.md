@@ -1,47 +1,57 @@
-# Virtual Judge
+# Sandbox Execution Engine
 
-A from-scratch **online judge** — the kind of system behind Codeforces or
-LeetCode — that takes a code submission, runs it inside a locked-down
-Docker sandbox against a set of test cases, and streams the verdict back to
-the browser in real time.
+A code execution engine that runs **untrusted source code inside a locked-down
+Docker container** — memory and PID limits enforced by cgroups, no network, a
+non-root user, and a wall-clock kill — and an asynchronous grading pipeline
+built on top of it.
 
-Built as a learning project to understand, end to end, how one of these
-systems actually works: OS-level isolation, an async work queue, a
-worker pool, pub/sub between processes, and a live WebSocket UI.
+An online judge ships in this repo as the **reference client**: it consumes the
+engine exactly the way a third party would, which is what keeps the boundary
+between "run this code" and "grade this submission" honest.
 
-**Live demo:** _<add Render URL after deploy>_
-&nbsp;·&nbsp; **Demo video:** _<add link>_
+Built to understand, end to end, how systems like Judge0 or the machinery behind
+Codeforces actually work: OS-level isolation, a durable work queue, a worker
+pool, pub/sub between processes, and live result streaming.
 
-> The public demo runs in **DEMO_MODE**: it accepts submissions, stores
-> them, and exercises the full API + WebSocket path, but it does **not**
-> execute your code. Arbitrary code execution can't be safely exposed on
-> shared free hosting without a dedicated, isolated Docker host. To see
-> real judging, run the whole stack locally with one command — see
+**Status:** the engine, the grading pipeline and the reference client are
+complete and tested. A public key-authenticated HTTP API and empirical
+complexity analysis are in progress — see [Roadmap](#roadmap).
+
+> **There is no hosted demo, deliberately.** Executing arbitrary code from the
+> internet needs a dedicated, isolated Docker host — it is not something to put
+> on shared free hosting. The whole stack runs locally with one command; see
 > [Run it locally](#run-it-locally).
-
-<!-- DEMO GIF: replace with docs/demo.gif once recorded -->
-<!-- ![Virtual Judge demo](docs/demo.gif) -->
 
 ---
 
 ## What it does
 
-- **Sign up / log in** (bcrypt-hashed passwords, JWT sessions). Every
-  submission belongs to a user — submitting requires being logged in.
-- A **LeetCode-style split-pane problem page**: the statement (and a
-  per-problem "Submissions" tab) on the left; language picker, Monaco
-  editor, custom stdin, and live results on the right.
-- Submit C++, Java, or Python. Each submission is compiled once, then run
-  against every test case in a fresh sandbox with a memory cap, a PID cap,
-  no network, and a wall-clock timeout.
+**The engine** takes a language, source code, stdin and resource limits, and
+returns stdout, stderr, exit code and timing — nothing more. It knows nothing
+about problems, test cases or verdicts.
+
+- One throwaway Docker container per run: `256 MB` memory cgroup, `64` PID cap,
+  `NetworkMode: none`, non-root `coderunner` user.
+- C++ (`gcc:13`), Java (`eclipse-temurin:21-jdk`), Python (`python:3.12-alpine`).
+- Distinguishes the ways a program can fail: OOM kill (read from Docker's
+  `OOMKilled` state, not guessed), wall-clock timeout, non-zero exit, and
+  compile failure.
+
+**The grading pipeline** turns that into verdicts.
+
+- A submission is one `INSERT` plus one `XADD` — the HTTP request never waits
+  for judging.
+- Redis Streams consumer groups deliver work to a pool of concurrent workers,
+  each on its own connection. Unacknowledged messages survive a worker crash.
+- Compile once, then run each test case against the compiled artifact, stopping
+  at the first failure.
 - Verdicts: `Accepted`, `Wrong Answer`, `Compile Error`, `Runtime Error`,
-  `Time Limit Exceeded`, `Memory Limit Exceeded`. Grading stops at the
-  first failing test case (like real judges).
-- The browser shows the status transition **Queued → Judging → verdict**
-  live over a WebSocket, plus the per-test-case breakdown and which test
-  it stopped on.
-- A **profile / dashboard**: email, problems-solved count, acceptance
-  rate, and full submission history linking back to each problem.
+  `Time Limit Exceeded`, `Memory Limit Exceeded`, `Internal Error`.
+- Status changes reach the browser live over WebSockets, fed by Redis Pub/Sub.
+
+**The reference client** is a React + Monaco SPA: a split-pane problem page,
+live `Queued → Judging → verdict` transitions with a per-test breakdown, and a
+profile with solved count, acceptance rate and submission history.
 
 ## Architecture
 
@@ -88,21 +98,25 @@ worker pool, pub/sub between processes, and a live WebSocket UI.
 | **One** Redis subscriber for the whole API, fanned out in-process | A `SUBSCRIBE` puts a connection in subscriber-only mode. One subscriber → a `Map<submissionId, Set<socket>>` is all that's needed; the update only has to reach the process once. |
 | **Snapshot + subscribe** on WS connect | A client can subscribe *after* the worker already finished, and would hang forever. On subscribe, the hub registers for live pushes *and* sends a DB-backed status snapshot. |
 | `GET /problems/:id` omits `expected_output` | A real judge doesn't hand clients the answer key. |
-| **JWT, not server sessions** | The frontend and API are served from different origins in the deployed demo, which makes cookie auth awkward. A bearer token (localStorage → `Authorization` header) sidesteps that; the token carries only the user id, everything else is a Postgres lookup. |
-| Auth is **independent of the sandbox** | `DEMO_MODE` only skips the enqueue step. Signup, login, the dashboard and submission history all work identically on the live demo — you just get a "not run in the demo" verdict instead of a real one. |
+| **JWT, not server sessions** | The client is a separate origin from the API, which makes cookie auth awkward without collapsing them behind one host. A bearer token carries only the user id; everything else is a Postgres lookup. The trade-off is real and documented under [Known limitations](#known-limitations). |
+| Auth is **independent of the sandbox** | `DEMO_MODE` skips only the enqueue step, so the API, auth and WebSocket paths can be exercised on a host that cannot safely execute code. |
+| **Engine/client boundary enforced in code** | `apps/web` may import `packages/shared` and nothing else; `apps/api` may not import the execution engine. `npm run lint` fails the build on a violation, so the separation cannot rot quietly. |
+| **A worker never throws a message into limbo** | An unprocessable job (unknown language, say) is marked `Internal Error`, published, and `XACK`ed. Without that, a poison message stays unacknowledged forever and freezes the submission in `Judging`. Genuinely transient failures still rethrow, so the message stays pending and redelivers. |
 
 ## Accounts & auth
 
-- `POST /auth/signup` / `POST /auth/login` → `{ token, user }`. Passwords
-  are hashed with bcrypt (`bcryptjs`, 10 rounds); the JWT (`jsonwebtoken`,
-  7-day expiry, `JWT_SECRET`) carries only `sub: userId`.
-- The SPA stores the token in `localStorage` and sends it as
-  `Authorization: Bearer <token>`. `POST /submissions` and
-  `GET /problems/:id/submissions` are behind `requireAuth`; `GET /profile`
-  returns the user's stats + history.
-- `submissions.user_id` links every submission to its author. Solved count =
-  distinct problems with an `Accepted` submission; acceptance rate =
-  accepted / total submissions.
+- `POST /auth/signup` / `POST /auth/login` -> `{ token, user }`. Passwords are
+  hashed with bcrypt at cost 12; the JWT (7-day expiry, HS256, algorithm pinned
+  on verify) carries only `sub: userId`. `JWT_SECRET` has no fallback anywhere —
+  the API refuses to start without it.
+- Every submission route is scoped to its owner. `GET /submissions/:id` returns
+  `404` for someone else's id rather than `403`, so it does not confirm the id
+  exists, and the response omits `source_code`, `user_id` and `stdin`.
+- The WebSocket hub is scoped the same way: a subscribe with no session, a bad
+  token, or another user's submission id is rejected.
+- Rate limited: signup, login and submission creation, all env-tunable.
+- Login always runs a bcrypt comparison, against a dummy hash when the account
+  does not exist, so response timing does not reveal which emails are registered.
 
 ## Tech stack
 
@@ -113,7 +127,7 @@ worker pool, pub/sub between processes, and a live WebSocket UI.
 - **Real-time:** Redis Pub/Sub → `ws` WebSocket gateway
 - **DB:** PostgreSQL (`pg`)
 - **API:** Express
-- **Auth:** `bcryptjs` + `jsonwebtoken` (JWT)
+- **Auth:** `bcryptjs` (cost 12) + `jsonwebtoken` (JWT, HS256) + `express-rate-limit`
 - **Frontend:** React + Vite + `@monaco-editor/react` + React Router
 - **Load testing:** k6
 
@@ -122,8 +136,8 @@ worker pool, pub/sub between processes, and a live WebSocket UI.
 **Full real stack (actual code execution) — one command:**
 
 ```bash
-git clone https://github.com/EshanGoel07/virtual-judge.git
-cd virtual-judge
+git clone https://github.com/EshanGoel07/sandbox-execution-engine.git
+cd sandbox-execution-engine
 cp .env.example .env          # then set JWT_SECRET (openssl rand -hex 32)
 docker compose up --build
 ```
@@ -166,20 +180,55 @@ the worker marks it `Done` — exercising
 API → Redis Stream → worker → Docker sandbox → Postgres under a ramp to
 20 virtual users over 80s.
 
-**Results** (2021 MacBook, Docker Desktop, `WORKER_CONCURRENCY=8`):
+**Results** (2021 MacBook, Docker Desktop, `WORKER_CONCURRENCY=8`, ramp to 20 VUs
+over 80 s, measured with auth and rate limiting in the request path):
 
 | Metric | Value |
 |---|---|
-| Submissions graded | 347, **100% `Accepted`**, 0 errors |
-| HTTP requests | 2,181 total, **0 failed** (`http_req_failed` 0.00%) |
-| `GET /problems` latency | p95 **2.95 ms** |
-| `POST /submissions` latency | p95 **3.98 ms** (JWT verify + INSERT + XADD) |
-| Throughput | ~27 req/s, **~4.3 fully-graded submissions/s** |
-| Time to verdict (poll loop) | avg **1.65 s**, p95 2.0 s — floored by the 0.5 s client poll interval; the WebSocket push path delivers verdicts sub-second |
+| Submissions graded | 340, **100% `Accepted`** |
+| HTTP requests | **0 failed** (`http_req_failed` 0.00%) |
+| `POST /submissions` latency | p95 **4.23 ms** (JWT verify + rate-limit check + `INSERT` + `XADD`) |
+| `GET /problems` latency | p95 **4.01 ms** |
 
-The API stays flat (single-digit-ms) under load because a submission is
-just a JWT verification, one `INSERT`, and one `XADD`; all the real work
-is absorbed by the queue and the worker pool.
+The API stays flat in single-digit milliseconds under load because a submission
+is a JWT verification, one `INSERT` and one `XADD` — all the expensive work is
+absorbed by the queue and the worker pool. End-to-end time to a verdict is
+seconds, since each submission gets its own container; that gap between request
+latency and work latency is the point of the architecture.
+
+The script is in `loadtest/`, so the numbers are reproducible rather than
+claimed.
+
+## Roadmap
+
+- **Public execution API** — `POST /api/v1/executions` authenticated by API
+  keys, with per-key rate limits, daily quotas and an in-flight concurrency cap,
+  documented with OpenAPI. The reference client keeps working unchanged; it
+  simply stops being the only consumer.
+- **Empirical complexity analysis** — run an accepted solution across a
+  geometric ladder of input sizes, measure CPU time from cgroup counters, and
+  fit the growth curve to report a *measured* complexity class with a confidence
+  bound. A measurement, never a proof: where `O(n)` and `O(n log n)` are
+  indistinguishable within noise, it says so.
+
+## Known limitations
+
+Written down deliberately rather than discovered by a reader.
+
+- **Crash recovery is incomplete.** A message whose worker dies mid-job stays
+  pending and is only retried when that same consumer restarts — peers do not
+  reclaim it. The fix is `XAUTOCLAIM` plus a dead-letter destination; it is not
+  built yet.
+- **The worker mounts the host Docker socket** in order to spawn sandbox
+  containers. That is effectively root on the host, which is exactly why this
+  needs a dedicated machine and cannot run on shared hosting.
+- **Tokens live in `localStorage`**, so an XSS hole would expose them, and
+  logout is client-side only — a stolen token stays valid until it expires.
+  Moving to httpOnly cookies requires collapsing the client and API onto one
+  origin.
+- **Validation is targeted, not blanket.** The submission path enforces
+  language, byte caps and a JSON size limit; other request bodies use narrow
+  hand-written checks. A schema layer belongs with the public API.
 
 ## Layout
 
@@ -209,7 +258,6 @@ db/
   seed/       problems.json
 loadtest/submit.js    k6 script
 docker-compose.yml    full real stack, one command
-render.yaml           public demo blueprint (DEMO_MODE=true)
 .env.example          every environment variable
 ```
 
