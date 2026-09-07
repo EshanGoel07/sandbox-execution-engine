@@ -98,8 +98,9 @@ export const listProblems = () =>
 export const getProblem = (id: number | string) =>
   fetch(`${API_BASE}/problems/${id}`).then(json<ProblemDetail>);
 
+// GET /submissions/:id is auth'd and owner-scoped — send the token.
 export const getSubmission = (id: number | string) =>
-  fetch(`${API_BASE}/submissions/${id}`).then(json<SubmissionDetail>);
+  fetch(`${API_BASE}/submissions/${id}`, { headers: authHeaders() }).then(json<SubmissionDetail>);
 
 export const submit = (body: {
   problemId: number;

@@ -50,6 +50,20 @@ export interface StreamMessage {
   submissionId: number;
 }
 
+function parseFirstMessage(
+  response: unknown
+): StreamMessage | null {
+  if (!response) return null;
+  const [, messages] = (response as [string, [string, string[]][]][])[0];
+  if (!messages || messages.length === 0) return null;
+  const [id, fields] = messages[0];
+
+  const fieldMap: Record<string, string> = {};
+  for (let i = 0; i < fields.length; i += 2) fieldMap[fields[i]] = fields[i + 1];
+
+  return { id, submissionId: Number(fieldMap.submissionId) };
+}
+
 // Blocks up to waitMs for the next unassigned message; null if none arrived.
 export async function readNextSubmission(
   consumerName: string,
@@ -62,15 +76,24 @@ export async function readNextSubmission(
     "BLOCK", waitMs,
     "STREAMS", STREAM_KEY, ">"
   );
-  if (!response) return null;
+  return parseFirstMessage(response);
+}
 
-  const [, messages] = response[0] as [string, [string, string[]][]];
-  const [id, fields] = messages[0];
-
-  const fieldMap: Record<string, string> = {};
-  for (let i = 0; i < fields.length; i += 2) fieldMap[fields[i]] = fields[i + 1];
-
-  return { id, submissionId: Number(fieldMap.submissionId) };
+// This consumer's own already-delivered-but-unacked messages (id "0" reads the
+// PEL, not new entries). A transient failure — Docker daemon down, a DB blip —
+// leaves the message unacked on purpose; on the next pass the same worker picks
+// it back up here and retries it, instead of the submission being stranded.
+// Non-blocking: returns null immediately when this consumer has no backlog.
+export async function readOwnPending(
+  consumerName: string,
+  client: Redis
+): Promise<StreamMessage | null> {
+  const response = await client.xreadgroup(
+    "GROUP", GROUP_NAME, consumerName,
+    "COUNT", 1,
+    "STREAMS", STREAM_KEY, "0"
+  );
+  return parseFirstMessage(response);
 }
 
 export async function acknowledgeSubmission(id: string, client: Redis): Promise<void> {

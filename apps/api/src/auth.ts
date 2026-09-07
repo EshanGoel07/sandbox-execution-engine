@@ -23,13 +23,27 @@ if (!JWT_SECRET) {
 }
 
 const JWT_TTL_SECONDS = 60 * 60 * 24 * 7; // 7 days
-const BCRYPT_ROUNDS = 10;
+// 12 rounds ~ 250ms/hash on current hardware: enough to make offline cracking
+// of a leaked hash table expensive, still cheap enough for a login request.
+const BCRYPT_ROUNDS = 12;
+
+// A real bcrypt hash of a fixed throwaway string. `verifyPassword` runs a
+// compare against this when the account doesn't exist, so login takes the
+// same time whether or not the email is registered — no timing oracle for
+// user enumeration. Generated with bcrypt.hashSync("no-such-user", 12).
+const DUMMY_HASH = "$2a$12$Vhq29TyWdVNYxOZje9XOhus7QFd4Fm/4RwLWo5lSioFfMG.UeCKjC";
 
 export function hashPassword(plain: string): Promise<string> {
   return bcrypt.hash(plain, BCRYPT_ROUNDS);
 }
 
-export function verifyPassword(plain: string, hash: string): Promise<boolean> {
+// Pass hash = null when the user was not found: this still spends a full
+// bcrypt compare (against a dummy hash) and returns false, so an absent email
+// is indistinguishable by response time from a wrong password.
+export function verifyPassword(plain: string, hash: string | null): Promise<boolean> {
+  if (hash === null) {
+    return bcrypt.compare(plain, DUMMY_HASH).then(() => false);
+  }
   return bcrypt.compare(plain, hash);
 }
 
@@ -46,19 +60,30 @@ function bearerToken(req: Request): string | null {
   return header.startsWith("Bearer ") ? header.slice("Bearer ".length) : null;
 }
 
+// Verify a token and return its user id, or null if it is missing, malformed,
+// expired, or signed with anything other than HS256. Pinning the algorithm
+// stops an "alg: none" / algorithm-confusion forgery — without it, jsonwebtoken
+// would accept any algorithm the token's header claims.
+export function verifyToken(token: string | null | undefined): number | null {
+  if (!token) return null;
+  try {
+    const payload = jwt.verify(token, JWT_SECRET as string, {
+      algorithms: ["HS256"],
+    }) as { sub: number | string };
+    return Number(payload.sub);
+  } catch {
+    return null;
+  }
+}
+
 // Express middleware: 401s unless a valid, unexpired token is present, and
 // otherwise sets req.userId for the handler.
 export function requireAuth(req: AuthedRequest, res: Response, next: NextFunction): void {
-  const token = bearerToken(req);
-  if (!token) {
+  const userId = verifyToken(bearerToken(req));
+  if (userId === null) {
     res.status(401).json({ error: "authentication required" });
     return;
   }
-  try {
-    const payload = jwt.verify(token, JWT_SECRET as string) as { sub: number | string };
-    req.userId = Number(payload.sub);
-    next();
-  } catch {
-    res.status(401).json({ error: "invalid or expired session" });
-  }
+  req.userId = userId;
+  next();
 }

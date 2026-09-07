@@ -20,6 +20,14 @@ interface Consumer {
   client: Redis;
 }
 
+// Exponential backoff bounds for a consumer loop that keeps erroring — a
+// Docker daemon outage would otherwise have every consumer hot-loop on
+// XREADGROUP + failed grade as fast as the CPU allows.
+const BASE_BACKOFF_MS = 500;
+const MAX_BACKOFF_MS = 30_000;
+
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
 export class WorkerPool {
   private consumers: Consumer[] = [];
   private loops: Promise<void>[] = [];
@@ -42,14 +50,25 @@ export class WorkerPool {
   }
 
   private async runLoop(consumer: Consumer): Promise<void> {
+    let consecutiveFailures = 0;
     while (!this.shuttingDown) {
       try {
         const outcome = await processOneSubmission(consumer.name, this.waitMs, consumer.client);
+        consecutiveFailures = 0;
         if (outcome) {
           this.options.onResult?.(outcome, consumer.name);
         }
       } catch (err) {
-        console.error(`[${consumer.name}] error:`, err);
+        consecutiveFailures++;
+        const backoff = Math.min(
+          MAX_BACKOFF_MS,
+          BASE_BACKOFF_MS * 2 ** (consecutiveFailures - 1)
+        );
+        console.error(
+          `[${consumer.name}] error (#${consecutiveFailures}), backing off ${backoff}ms:`,
+          err
+        );
+        await sleep(backoff);
       }
     }
   }

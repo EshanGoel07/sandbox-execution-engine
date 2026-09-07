@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { WS_URL, getSubmission, SubmissionDetail } from "../api";
+import { WS_URL, getSubmission, getToken, SubmissionDetail } from "../api";
 import VerdictBadge from "./VerdictBadge";
 
 interface LiveState {
@@ -37,10 +37,19 @@ export default function ResultsView({ submissionId }: { submissionId: number }) 
     const ws = new WebSocket(WS_URL);
 
     ws.onopen = () => {
-      ws.send(JSON.stringify({ type: "subscribe", submissionId }));
+      // The hub authorises the subscription from this token (browsers can't
+      // set headers on a WebSocket) and scopes it to the submission's owner.
+      ws.send(JSON.stringify({ type: "subscribe", submissionId, token: getToken() }));
     };
     ws.onmessage = (ev) => {
       const u = JSON.parse(ev.data);
+      if (u.type === "error") {
+        // Not authorised for live updates — the REST backstop below still
+        // resolves the verdict for the owner.
+        if (!settled.current) setWsError(true);
+        ws.close();
+        return;
+      }
       setLive((prev) => ({
         status: u.status ?? prev.status,
         verdict: u.verdict ?? prev.verdict,

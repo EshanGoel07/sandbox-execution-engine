@@ -14,7 +14,9 @@ export {
   updateSubmissionStatus,
   getSubmissionStatus,
   saveGradeResult,
-  getSubmissionWithResults,
+  getSubmissionForOwner,
+  getSubmissionOwnerId,
+  failSubmissionInternal,
 } from "./db";
 export type { NewProblem, NewTestCase, UserRow, SubmissionForGrading } from "./db";
 
@@ -31,6 +33,7 @@ export {
   createConsumerConnection,
   ensureConsumerGroup,
   readNextSubmission,
+  readOwnPending,
   acknowledgeSubmission,
   pendingCount,
   closeStream,

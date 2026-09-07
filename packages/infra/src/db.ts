@@ -14,6 +14,7 @@ import type {
   ProblemDetail,
   ProblemListItem,
   PublicUser,
+  SubmissionDetail,
   SubmissionStatusPayload,
   SubmissionSummary,
 } from "@vj/shared";
@@ -292,6 +293,10 @@ export async function saveGradeResult(submissionId: number, gradeResult: GradeRe
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
+    // Idempotent: if a retry re-grades this submission (e.g. the previous
+    // attempt crashed after grading but before COMMIT), clear the old per-test
+    // rows first so they aren't duplicated.
+    await client.query("DELETE FROM submission_results WHERE submission_id = $1", [submissionId]);
     await client.query(
       `UPDATE submissions
        SET status = 'Done', verdict = $1, passed_count = $2, total_count = $3,
@@ -331,8 +336,22 @@ export async function saveGradeResult(submissionId: number, gradeResult: GradeRe
   }
 }
 
-export async function getSubmissionWithResults(submissionId: number) {
-  const submissionResult = await pool.query("SELECT * FROM submissions WHERE id = $1", [submissionId]);
+// `GET /submissions/:id`. Scoped to the owner: a submission that exists but
+// belongs to someone else is indistinguishable from one that doesn't (both
+// return null -> 404), so an attacker can't confirm an id by its status code.
+// The column list is exactly what the client reads — source_code, user_id and
+// stdin are deliberately not returned.
+export async function getSubmissionForOwner(
+  submissionId: number,
+  userId: number
+): Promise<SubmissionDetail | null> {
+  const submissionResult = await pool.query(
+    `SELECT id, problem_id, language, status, verdict,
+            passed_count, total_count, failed_test_ordinal, message
+     FROM submissions
+     WHERE id = $1 AND user_id = $2`,
+    [submissionId, userId]
+  );
   if (submissionResult.rows.length === 0) return null;
 
   const resultsResult = await pool.query(
@@ -340,5 +359,27 @@ export async function getSubmissionWithResults(submissionId: number) {
     [submissionId]
   );
 
-  return { ...submissionResult.rows[0], results: resultsResult.rows };
+  return { ...submissionResult.rows[0], results: resultsResult.rows } as SubmissionDetail;
+}
+
+// Owner of a submission (or null if the row is missing / has no user). Used by
+// the WebSocket hub to reject a subscription to someone else's submission.
+export async function getSubmissionOwnerId(submissionId: number): Promise<number | null> {
+  const result = await pool.query("SELECT user_id FROM submissions WHERE id = $1", [submissionId]);
+  return result.rows.length > 0 ? (result.rows[0].user_id ?? null) : null;
+}
+
+// Terminal "we couldn't grade this" state. Sets a verdict and an explanatory
+// message and marks the submission Done so it never hangs in "Judging". No
+// submission_results rows are written — none ran.
+export async function failSubmissionInternal(
+  submissionId: number,
+  message: string
+): Promise<void> {
+  await pool.query(
+    `UPDATE submissions
+     SET status = 'Done', verdict = 'Internal Error', message = $1, judged_at = now()
+     WHERE id = $2`,
+    [message, submissionId]
+  );
 }

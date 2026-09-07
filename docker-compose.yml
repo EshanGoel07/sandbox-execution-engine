@@ -57,6 +57,16 @@ services:
       PGSSL: disable
       REDIS_URL: redis://redis:6379
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set — copy .env.example to .env and set it}
+      # Rate limits: unset -> the code's strict defaults (signup 3/hr/IP,
+      # login 5/15min/IP, submissions 20/min/user). The load test overrides
+      # these from the shell — see loadtest/README.md.
+      SIGNUP_RATE_MAX: ${SIGNUP_RATE_MAX:-}
+      LOGIN_RATE_MAX: ${LOGIN_RATE_MAX:-}
+      SUBMISSION_RATE_MAX: ${SUBMISSION_RATE_MAX:-}
+      # No proxy in front of the API in this stack (the browser hits :3000
+      # directly), so leave trust-proxy off. Set to the proxy hop count on a
+      # host that terminates TLS in front of the API.
+      TRUST_PROXY: ${TRUST_PROXY:-}
       # DEMO_MODE deliberately unset -> real execution
     ports:
       - "3000:3000"
