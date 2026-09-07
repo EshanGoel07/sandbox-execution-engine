@@ -1,0 +1,20 @@
+{
+  "name": "@vj/engine",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Sandbox execution engine: given a language, source, stdin and limits, run it in a locked-down Docker container and report stdout/stderr/exit/timing. Knows nothing about problems, test cases, grading, the queue or the database.",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -b",
+    "test": "ts-node test/outcomes.test.ts && ts-node test/run-once.test.ts && ts-node test/tle.test.ts"
+  },
+  "dependencies": {
+    "dockerode": "^5.0.1",
+    "tar-stream": "^3.2.1"
+  },
+  "devDependencies": {
+    "@types/dockerode": "^4.0.1",
+    "@types/tar-stream": "^3.1.4"
+  }
+}

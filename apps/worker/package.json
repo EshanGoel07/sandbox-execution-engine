@@ -1,0 +1,20 @@
+{
+  "name": "@vj/worker",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Queue consumer + grading loop. Pulls a submissionId off the stream, loads it from Postgres, grades it against its test cases with the engine, persists results, publishes status.",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -b",
+    "start": "node dist/main.js",
+    "dev": "ts-node src/main.ts",
+    "test": "ts-node test/queue.test.ts && ts-node test/worker.test.ts"
+  },
+  "dependencies": {
+    "@vj/engine": "*",
+    "@vj/infra": "*",
+    "@vj/shared": "*",
+    "ioredis": "^6.0.0"
+  }
+}

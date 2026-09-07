@@ -1,0 +1,808 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Virtual Judge Architecture</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Serif:wght@400;500;600&display=swap">
+
+<style>
+  :root {
+    --bg: #F4F6F5;
+    --surface: #FFFFFF;
+    --surface-sunk: #ECEFEE;
+    --ink: #171A19;
+    --muted: #5D6663;
+    --faint: #8A928F;
+    --border: #DDE2E0;
+    --border-strong: #C3CAC7;
+    --accent: #8A5B22;
+    --accent-ink: #6F4818;
+    --accent-soft: #F2E9DC;
+    --ok: #227F4B;
+    --bad: #C0392F;
+    --warn: #A97612;
+    --info: #2B6CB0;
+    --violet: #6D46B8;
+
+    --serif: "IBM Plex Serif", Georgia, "Times New Roman", serif;
+    --sans: "IBM Plex Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #141816;
+      --surface: #1B201E;
+      --surface-sunk: #10130F;
+      --ink: #E9EDEA;
+      --muted: #9AA39F;
+      --faint: #78827E;
+      --border: #2B322F;
+      --border-strong: #3C4441;
+      --accent: #D6A45E;
+      --accent-ink: #E5BC83;
+      --accent-soft: #2A241A;
+      --ok: #4FB877;
+      --bad: #E4695E;
+      --warn: #D4A03A;
+      --info: #6AA5E0;
+      --violet: #A188E0;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --bg: #141816;
+    --surface: #1B201E;
+    --surface-sunk: #10130F;
+    --ink: #E9EDEA;
+    --muted: #9AA39F;
+    --faint: #78827E;
+    --border: #2B322F;
+    --border-strong: #3C4441;
+    --accent: #D6A45E;
+    --accent-ink: #E5BC83;
+    --accent-soft: #2A241A;
+    --ok: #4FB877;
+    --bad: #E4695E;
+    --warn: #D4A03A;
+    --info: #6AA5E0;
+    --violet: #A188E0;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .topbar {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: color-mix(in srgb, var(--bg) 92%, transparent);
+    backdrop-filter: blur(8px);
+    border-bottom: 1px solid var(--border);
+  }
+  .topbar-inner {
+    max-width: 1000px;
+    margin: 0 auto;
+    padding: 10px 24px;
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 24px;
+    flex-wrap: wrap;
+  }
+  .topbar strong {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: 15px;
+    letter-spacing: 0.01em;
+  }
+  .topnav {
+    display: flex;
+    gap: 18px;
+    flex-wrap: wrap;
+    font-family: var(--mono);
+    font-size: 11.5px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+  .topnav a { color: var(--muted); text-decoration: none; }
+  .topnav a:hover, .topnav a:focus-visible { color: var(--accent); }
+
+  .wrap { max-width: 1000px; margin: 0 auto; padding: 0 24px 96px; }
+  .col { max-width: 68ch; }
+
+  header.hero { padding: 64px 0 40px; }
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    letter-spacing: 0.11em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0 0 18px;
+  }
+  h1 {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: clamp(30px, 5vw, 44px);
+    line-height: 1.12;
+    letter-spacing: -0.015em;
+    margin: 0 0 20px;
+    text-wrap: balance;
+  }
+  .standfirst {
+    font-size: 18.5px;
+    line-height: 1.6;
+    color: var(--muted);
+    margin: 0;
+    max-width: 60ch;
+  }
+
+  h2 {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: 25px;
+    line-height: 1.25;
+    letter-spacing: -0.01em;
+    margin: 0 0 6px;
+    text-wrap: balance;
+  }
+  h3 {
+    font-family: var(--sans);
+    font-weight: 600;
+    font-size: 16px;
+    letter-spacing: 0.005em;
+    margin: 32px 0 8px;
+  }
+  section { padding-top: 56px; }
+  .sec-num {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    letter-spacing: 0.11em;
+    color: var(--faint);
+    display: block;
+    margin-bottom: 10px;
+  }
+  p { margin: 0 0 18px; }
+  a { color: var(--accent-ink); }
+
+  code {
+    font-family: var(--mono);
+    font-size: 0.875em;
+    background: var(--surface-sunk);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1px 5px;
+  }
+
+  strong { font-weight: 600; }
+  em.term { font-style: normal; font-weight: 600; color: var(--accent-ink); }
+
+  figure {
+    margin: 34px 0;
+    padding: 0;
+  }
+  .figbox {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 22px 20px 14px;
+    overflow-x: auto;
+  }
+  figure svg { display: block; width: 100%; height: auto; min-width: 560px; color: var(--muted); }
+  figcaption {
+    font-size: 13.5px;
+    line-height: 1.55;
+    color: var(--muted);
+    margin-top: 12px;
+    max-width: 66ch;
+  }
+  .svg-box { fill: var(--surface); stroke: var(--border-strong); }
+  .svg-box-accent { fill: var(--accent-soft); stroke: var(--accent); }
+  .svg-label { fill: var(--ink); font-family: var(--sans); font-size: 13px; font-weight: 600; }
+  .svg-sub { fill: var(--muted); font-family: var(--mono); font-size: 10.5px; }
+  .svg-edge { stroke: var(--border-strong); fill: none; stroke-width: 1.5; }
+  .svg-edge-accent { stroke: var(--accent); fill: none; stroke-width: 1.75; }
+  .svg-edge-dead { stroke: var(--faint); fill: none; stroke-width: 1.5; stroke-dasharray: 4 4; }
+  .svg-arrowlabel { fill: var(--muted); font-family: var(--mono); font-size: 10.5px; }
+  .svg-head { fill: var(--faint); font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em; }
+
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 26px 0 28px;
+    font-size: 14.5px;
+  }
+  th, td {
+    text-align: left;
+    vertical-align: top;
+    padding: 11px 14px 11px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  th {
+    font-family: var(--mono);
+    font-weight: 500;
+    font-size: 11px;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--faint);
+    border-bottom: 1px solid var(--border-strong);
+    padding-bottom: 8px;
+  }
+  td:last-child, th:last-child { padding-right: 0; }
+  .tbl-wrap { overflow-x: auto; }
+  table.wide { min-width: 620px; }
+
+  .pill {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 11.5px;
+    padding: 1px 8px;
+    border-radius: 999px;
+    border: 1px solid currentColor;
+    white-space: nowrap;
+  }
+  .p-ok { color: var(--ok); }
+  .p-bad { color: var(--bad); }
+  .p-warn { color: var(--warn); }
+  .p-mle { color: var(--bad); }
+  .p-ce { color: var(--violet); }
+
+  ol.steps { counter-reset: s; list-style: none; padding: 0; margin: 24px 0 8px; }
+  ol.steps > li {
+    counter-increment: s;
+    position: relative;
+    padding-left: 42px;
+    margin-bottom: 16px;
+    max-width: 66ch;
+  }
+  ol.steps > li::before {
+    content: counter(s);
+    position: absolute;
+    left: 0;
+    top: 1px;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    border: 1px solid var(--border-strong);
+    background: var(--surface);
+    color: var(--muted);
+    font-family: var(--mono);
+    font-size: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .callout {
+    border-left: 2px solid var(--accent);
+    padding: 2px 0 2px 18px;
+    margin: 26px 0;
+    max-width: 66ch;
+  }
+  .callout p:last-child { margin-bottom: 0; }
+  .callout .lbl {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--accent);
+    display: block;
+    margin-bottom: 6px;
+  }
+
+  dl.defs { margin: 24px 0; max-width: 68ch; }
+  dl.defs > div {
+    display: grid;
+    grid-template-columns: 190px 1fr;
+    gap: 20px;
+    padding: 14px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  dl.defs dt {
+    font-family: var(--mono);
+    font-size: 12.5px;
+    color: var(--accent-ink);
+    line-height: 1.5;
+    padding-top: 2px;
+  }
+  dl.defs dd { margin: 0; font-size: 15px; }
+  @media (max-width: 620px) {
+    dl.defs > div { grid-template-columns: 1fr; gap: 4px; }
+  }
+
+  .say {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 18px 20px;
+    margin: 18px 0;
+    max-width: 70ch;
+  }
+  .say q {
+    display: block;
+    font-family: var(--serif);
+    font-size: 16px;
+    font-style: italic;
+    color: var(--muted);
+    margin-bottom: 10px;
+  }
+  .say q::before, .say q::after { content: none; }
+  .say p { margin: 0; font-size: 15px; }
+
+  hr.rule {
+    border: 0;
+    border-top: 1px solid var(--border);
+    margin: 0;
+  }
+
+  footer.end {
+    padding-top: 56px;
+    color: var(--muted);
+    font-size: 14px;
+    max-width: 66ch;
+  }
+
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+</style>
+
+</head>
+<body>
+<div class="topbar">
+  <div class="topbar-inner">
+    <strong>Virtual Judge — Architecture</strong>
+    <nav class="topnav">
+      <a href="#shape">Shape</a>
+      <a href="#parts">Parts</a>
+      <a href="#flow">Flow</a>
+      <a href="#sandbox">Sandbox</a>
+      <a href="#queue">Queue</a>
+      <a href="#realtime">Real time</a>
+      <a href="#next">What's next</a>
+      <a href="#say">Say it out loud</a>
+    </nav>
+  </div>
+</div>
+
+<div class="wrap">
+
+  <header class="hero">
+    <p class="eyebrow">Reference · read before the next build phase</p>
+    <h1>How the judge actually works</h1>
+    <p class="standfirst">A code execution engine that runs untrusted programs inside locked-down containers, an asynchronous grading pipeline built on top of it, and a real-time layer that pushes results back to the browser. This page explains every moving part and why it is shaped that way.</p>
+  </header>
+
+  <hr class="rule">
+
+  <section id="shape">
+    <span class="sec-num">01 — The shape of the system</span>
+    <div class="col">
+      <h2>Two things, not one</h2>
+      <p>The single most important idea in this architecture is a line between two concepts that are easy to confuse:</p>
+    </div>
+
+    <dl class="defs">
+      <div>
+        <dt>Execution</dt>
+        <dd>Given a language, some source code, and standard input: run it in isolation and report what happened — stdout, stderr, exit code, CPU time, peak memory. It knows nothing about problems, test cases, or verdicts.</dd>
+      </div>
+      <div>
+        <dt>Grading</dt>
+        <dd>Given a problem and a submission: fetch that problem's test cases, call <em class="term">execution</em> once per case, compare each output against what was expected, and aggregate a single verdict.</dd>
+      </div>
+    </dl>
+
+    <div class="col">
+      <p>Grading is a <em class="term">consumer</em> of execution, not a peer of it. Once that line exists, the engine can serve other clients too — which is exactly what the public API in section 07 does.</p>
+    </div>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 760 300" role="img" aria-label="The web app submits to a grading layer, which drives the execution engine once per test case; an API client calls the same engine directly.">
+          <defs>
+            <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor"></path>
+            </marker>
+          </defs>
+
+          <rect class="svg-box" x="40" y="16" width="290" height="54" rx="5"></rect>
+          <text class="svg-label" x="185" y="40" text-anchor="middle">Judge web app</text>
+          <text class="svg-sub" x="185" y="57" text-anchor="middle">browser, session cookie</text>
+
+          <rect class="svg-box" x="420" y="16" width="290" height="54" rx="5"></rect>
+          <text class="svg-label" x="565" y="40" text-anchor="middle">Any API client</text>
+          <text class="svg-sub" x="565" y="57" text-anchor="middle">curl, SDK, CLI, autograder</text>
+
+          <rect class="svg-box" x="40" y="120" width="290" height="54" rx="5"></rect>
+          <text class="svg-label" x="185" y="144" text-anchor="middle">Grading layer</text>
+          <text class="svg-sub" x="185" y="161" text-anchor="middle">problems · test cases · verdicts</text>
+
+          <rect class="svg-box-accent" x="40" y="222" width="670" height="60" rx="5"></rect>
+          <text class="svg-label" x="375" y="246" text-anchor="middle">Execution engine</text>
+          <text class="svg-sub" x="375" y="264" text-anchor="middle">source + stdin → stdout, exit code, cpu time, peak memory</text>
+
+          <g color="var(--border-strong)">
+            <line class="svg-edge" x1="185" y1="70" x2="185" y2="114" marker-end="url(#ar)"></line>
+            <line class="svg-edge" x1="185" y1="174" x2="185" y2="216" marker-end="url(#ar)"></line>
+          </g>
+          <g color="var(--accent)">
+            <line class="svg-edge-accent" x1="565" y1="70" x2="565" y2="216" marker-end="url(#ar)"></line>
+          </g>
+
+          <text class="svg-arrowlabel" x="196" y="97">submits a solution</text>
+          <text class="svg-arrowlabel" x="196" y="201">runs it once per test case</text>
+          <text class="svg-arrowlabel" x="576" y="150">calls the engine directly</text>
+        </svg>
+      </div>
+      <figcaption>Grading sits on top of execution and uses it repeatedly; an external client skips grading entirely and talks to the engine. The engine has no idea which of the two is calling it.</figcaption>
+    </figure>
+  </section>
+
+  <section id="parts">
+    <span class="sec-num">02 — The parts</span>
+    <div class="col">
+      <h2>What each component is for</h2>
+      <p>Six pieces, each solving one problem. The reason there are six rather than one is that judging code is slow and dangerous, while serving a web request should be fast and safe.</p>
+    </div>
+
+    <dl class="defs">
+      <div>
+        <dt>API server<br><span style="color:var(--faint)">Express</span></dt>
+        <dd>Accepts HTTP requests and holds open WebSocket connections. Everything it does is fast: write a row, push an ID onto a queue, read a row back. It never waits for code to be judged.</dd>
+      </div>
+      <div>
+        <dt>PostgreSQL</dt>
+        <dd>The source of truth. Problems, test cases, users, submissions, results. Anything that must survive a restart lives here, and any component that needs the real state reads it from here rather than from a message.</dd>
+      </div>
+      <div>
+        <dt>Redis Stream<br><span style="color:var(--faint)">the queue</span></dt>
+        <dd>Holds submission IDs waiting to be judged. Durable: a message stays claimable until a worker explicitly acknowledges it, which is what makes a mid-judge crash survivable.</dd>
+      </div>
+      <div>
+        <dt>Worker pool</dt>
+        <dd>Separate process. Pulls IDs off the queue, loads the real submission from Postgres, drives the grading loop, writes results back. Several consumers run at once, each on its own Redis connection.</dd>
+      </div>
+      <div>
+        <dt>Sandbox container</dt>
+        <dd>One throwaway Docker container per run, with a hard memory cap, a process-count cap, no network, and a non-root user. This is where untrusted code actually executes.</dd>
+      </div>
+      <div>
+        <dt>Redis Pub/Sub<br>+ WebSocket hub</dt>
+        <dd>The notification path. The worker announces "submission 482 is done"; the API server, which holds a single standing subscription, forwards that to whichever browsers asked about 482.</dd>
+      </div>
+    </dl>
+
+    <div class="callout">
+      <span class="lbl">The distinction people miss</span>
+      <p>The Stream and Pub/Sub are both Redis, but they are not the same tool. The <strong>Stream is a queue</strong> — it holds work until someone acknowledges it. <strong>Pub/Sub is a loudspeaker</strong> — it holds nothing, and a message sent while nobody is listening is simply gone. The queue carries the work; Pub/Sub only carries the announcement that the work is finished.</p>
+    </div>
+  </section>
+
+  <section id="flow">
+    <span class="sec-num">03 — End to end</span>
+    <div class="col">
+      <h2>One submission, all the way through</h2>
+      <p>Nothing in this path blocks on anything slow. The browser gets an answer in milliseconds; the actual judging happens on its own schedule and reports back when it's done.</p>
+    </div>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 880 340" role="img" aria-label="The browser talks to the API server, which writes to Postgres and pushes an ID onto a Redis stream; a worker reads it, updates Postgres, and publishes to Redis Pub/Sub, which the API server forwards back to the browser over a WebSocket.">
+          <defs>
+            <marker id="ar2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor"></path>
+            </marker>
+          </defs>
+
+          <rect class="svg-box" x="16" y="118" width="132" height="94" rx="5"></rect>
+          <text class="svg-label" x="82" y="158" text-anchor="middle">Browser</text>
+          <text class="svg-sub" x="82" y="176" text-anchor="middle">the user</text>
+
+          <rect class="svg-box-accent" x="200" y="98" width="162" height="134" rx="5"></rect>
+          <text class="svg-label" x="281" y="152" text-anchor="middle">API server</text>
+          <text class="svg-sub" x="281" y="170" text-anchor="middle">HTTP + WebSocket</text>
+
+          <rect class="svg-box" x="432" y="18" width="180" height="60" rx="5"></rect>
+          <text class="svg-label" x="522" y="42" text-anchor="middle">PostgreSQL</text>
+          <text class="svg-sub" x="522" y="60" text-anchor="middle">source of truth</text>
+
+          <rect class="svg-box" x="432" y="136" width="180" height="60" rx="5"></rect>
+          <text class="svg-label" x="522" y="160" text-anchor="middle">Redis Stream</text>
+          <text class="svg-sub" x="522" y="178" text-anchor="middle">the work queue</text>
+
+          <rect class="svg-box" x="432" y="252" width="180" height="60" rx="5"></rect>
+          <text class="svg-label" x="522" y="276" text-anchor="middle">Redis Pub/Sub</text>
+          <text class="svg-sub" x="522" y="294" text-anchor="middle">fire and forget</text>
+
+          <rect class="svg-box" x="686" y="118" width="176" height="94" rx="5"></rect>
+          <text class="svg-label" x="774" y="152" text-anchor="middle">Worker pool</text>
+          <text class="svg-sub" x="774" y="170" text-anchor="middle">one sandbox container</text>
+          <text class="svg-sub" x="774" y="185" text-anchor="middle">per run</text>
+
+          <g color="var(--border-strong)">
+            <line class="svg-edge" x1="148" y1="142" x2="196" y2="142" marker-end="url(#ar2)"></line>
+            <line class="svg-edge" x1="200" y1="192" x2="152" y2="192" marker-end="url(#ar2)"></line>
+            <polyline class="svg-edge" points="362,124 397,124 397,48 428,48" marker-end="url(#ar2)"></polyline>
+            <line class="svg-edge" x1="362" y1="166" x2="428" y2="166" marker-end="url(#ar2)"></line>
+            <line class="svg-edge" x1="612" y1="166" x2="682" y2="166" marker-end="url(#ar2)"></line>
+            <polyline class="svg-edge" points="774,118 774,48 616,48" marker-end="url(#ar2)"></polyline>
+            <polyline class="svg-edge" points="774,212 774,282 616,282" marker-end="url(#ar2)"></polyline>
+            <polyline class="svg-edge" points="428,282 397,282 397,206 366,206" marker-end="url(#ar2)"></polyline>
+          </g>
+
+          <text class="svg-arrowlabel" x="150" y="134">POST /submissions</text>
+          <text class="svg-arrowlabel" x="150" y="212">WebSocket push</text>
+          <text class="svg-arrowlabel" x="404" y="88">INSERT (Queued)</text>
+          <text class="svg-arrowlabel" x="372" y="158">XADD submissionId</text>
+          <text class="svg-arrowlabel" x="618" y="158">XREADGROUP</text>
+          <text class="svg-arrowlabel" x="640" y="40">SELECT code · UPDATE verdict</text>
+          <text class="svg-arrowlabel" x="654" y="274">PUBLISH "482 done"</text>
+          <text class="svg-arrowlabel" x="404" y="248">one standing subscriber</text>
+        </svg>
+      </div>
+      <figcaption>The upper half is the request path (fast, synchronous, milliseconds). The lower half is the notification path. The worker in the middle runs on its own clock and touches Postgres directly rather than talking to the API server.</figcaption>
+    </figure>
+
+    <ol class="steps">
+      <li>The browser sends <code>POST /submissions</code> with the problem, language, and source code.</li>
+      <li>The API server writes a row into Postgres with status <code>Queued</code>. That row is now the only authoritative record that this submission exists.</li>
+      <li>The API server does <code>XADD</code> onto the Redis Stream carrying <strong>only the submission's ID</strong> — not the code.</li>
+      <li>The API server immediately replies with the submission ID. The HTTP request is finished; nothing waited on judging.</li>
+      <li>The browser opens a WebSocket and subscribes to that ID. The server notes which connection cares about which submission, and immediately sends back the current status read from Postgres (section 06 explains why that read matters).</li>
+      <li>Independently, a worker blocked on <code>XREADGROUP</code> wakes up, claims the ID, and loads the real submission and its test cases from Postgres.</li>
+      <li>The worker creates one sandbox container, compiles once, then runs each test case through the compiled program, stopping at the first failure.</li>
+      <li>The worker updates the Postgres row with the verdict and per-test results, then <code>XACK</code>s the queue message to mark the work genuinely done.</li>
+      <li>The worker publishes a short "submission 482 is done" message on Redis Pub/Sub.</li>
+      <li>The API server's standing subscriber receives it, looks up which WebSocket connections asked about 482, and pushes the update to exactly those. The page updates without a refresh.</li>
+    </ol>
+
+    <div class="callout">
+      <span class="lbl">Why the queue carries only an ID</span>
+      <p>If the message carried the source code too, the queue would become a second place where a submission's state lives — and two sources of truth eventually disagree. Carrying only an ID makes the message a pure notification: "go look at row 482." Postgres stays the one thing that knows what row 482 actually contains.</p>
+    </div>
+  </section>
+
+  <section id="sandbox">
+    <span class="sec-num">04 — Containment</span>
+    <div class="col">
+      <h2>How untrusted code is contained</h2>
+      <p>The code being run is written by strangers and may be hostile, broken, or accidentally catastrophic. Two different Linux mechanisms do the containing, and they are commonly confused with each other.</p>
+      <p><strong>Namespaces</strong> control what a process can <em class="term">see</em> — its own process tree, its own filesystem view, its own (absent) network. <strong>Control groups</strong> control what a process can <em class="term">use</em> — how much memory, how many processes, how much CPU. Docker is a convenience wrapper that sets both up, plus image packaging.</p>
+    </div>
+
+    <div class="tbl-wrap">
+      <table class="wide">
+        <thead>
+          <tr><th>Control</th><th>Mechanism</th><th>What it stops</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>Memory: 256m</code></td><td>memory cgroup</td><td>A program allocating until the host runs out of RAM. The kernel's OOM killer terminates the process inside the container instead.</td></tr>
+          <tr><td><code>PidsLimit: 64</code></td><td>pids cgroup</td><td>A fork bomb. Nothing to do with memory — it caps how many processes may exist at once.</td></tr>
+          <tr><td><code>NetworkMode: none</code></td><td>network namespace</td><td>Downloading a solution, exfiltrating data, or attacking anything else on the network.</td></tr>
+          <tr><td>non-root <code>coderunner</code> user</td><td>ordinary Unix permissions</td><td>Defence in depth: even if something escapes the program, it isn't root inside the container.</td></tr>
+          <tr><td>wall-clock timeout</td><td>application-level, in the worker</td><td>An infinite loop. Necessary because cgroups cap CPU time <em>consumed</em>, not real time <em>elapsed</em> — a process asleep forever burns no CPU but never finishes.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>How each verdict is actually determined</h3>
+    <div class="tbl-wrap">
+      <table class="wide">
+        <thead>
+          <tr><th>Verdict</th><th>Detected by</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><span class="pill p-ok">Accepted</span></td><td>Exit code 0 and output matches expected, for every test case.</td></tr>
+          <tr><td><span class="pill p-bad">Wrong Answer</span></td><td>Exit code 0 but output differs from expected. Grading stops at that test.</td></tr>
+          <tr><td><span class="pill p-ce">Compile Error</span></td><td>The compile step returned a non-zero exit code; its stderr is shown to the user.</td></tr>
+          <tr><td><span class="pill p-warn">Time Limit Exceeded</span></td><td>The wall-clock timer fired before the run finished. The container is killed in a <code>finally</code> block so nothing is left running.</td></tr>
+          <tr><td><span class="pill p-mle">Memory Limit Exceeded</span></td><td><code>docker inspect</code> reports <code>State.OOMKilled = true</code> — the kernel, not a guess. Exit code 137 (128 + SIGKILL) corroborates it.</td></tr>
+          <tr><td><span class="pill p-bad">Runtime Error</span></td><td>Non-zero exit code with no OOM kill: a crash, an uncaught exception, or a deliberate non-zero return.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="col">
+      <p>One design decision worth being able to defend: grading <strong>stops at the first failing test</strong>. Partly because it matches how real judges report ("Wrong Answer on test 2") and saves compute on submissions already known to be wrong — but also because <code>OOMKilled</code> is a property of the whole container's history. Continuing to reuse a container after one test has already been OOM-killed means reading stale kill state on the next test. Stopping avoids that class of bug entirely.</p>
+    </div>
+  </section>
+
+  <section id="queue">
+    <span class="sec-num">05 — The queue</span>
+    <div class="col">
+      <h2>Why a queue instead of just calling the function</h2>
+      <p>The API server could simply call the grading function directly and wait. Three things break if it does.</p>
+      <p><strong>It blocks.</strong> Node runs one thread; a request stuck for five seconds waiting on a container blocks every other request queued behind it.</p>
+      <p><strong>It loses work.</strong> If the process dies mid-judge, that submission is gone with no record that it was ever in progress.</p>
+      <p><strong>It cannot scale separately.</strong> Grading and serving HTTP have completely different resource profiles, and a direct call welds them into one process that must scale as a unit.</p>
+
+      <h3>What a consumer group actually does</h3>
+      <p>When a worker calls <code>XREADGROUP</code>, Redis does two things: it hands over the message, and it records in a <em class="term">pending entries list</em> that this specific consumer holds that message and has not acknowledged it. <code>XACK</code> is what removes that record.</p>
+      <p>So if a worker dies halfway through judging, the entry is never acknowledged and never disappears — it sits in the pending list, visibly held by a consumer that no longer exists. Another worker can then claim it with <code>XCLAIM</code> or <code>XAUTOCLAIM</code> once it has been pending too long. The job isn't lost; it's parked in a recoverable state.</p>
+
+      <h3>Why every consumer gets its own Redis connection</h3>
+      <p>A blocking <code>XREADGROUP</code> occupies its connection while it waits, and a single connection handles one command at a time. Three consumers sharing one connection would take turns rather than working in parallel — the second consumer couldn't even issue its read until the first returned. Separate connections let three blocking reads be outstanding simultaneously, which is what makes the pool actually concurrent.</p>
+    </div>
+  </section>
+
+  <section id="realtime">
+    <span class="sec-num">06 — Real time</span>
+    <div class="col">
+      <h2>Live updates, and the race hiding in them</h2>
+      <p>Ordinary HTTP is a postcard: one request, one reply, connection closed. To learn when grading finishes, a browser would have to keep asking. A <strong>WebSocket</strong> is a phone call left open instead — either side can speak at any time, so the server can announce the verdict the moment it exists.</p>
+      <p>Opening the connection isn't enough on its own, though: the server may be holding hundreds of connections watching different submissions. So right after connecting, the client sends a <em class="term">subscribe</em> message naming the submission it cares about, and the server records which connection wants which ID.</p>
+      <p>That two-step — connect, then subscribe — is where a real bug lived.</p>
+    </div>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 760 356" role="img" aria-label="Without a catch-up snapshot the client subscribes after the message was published and waits forever; with a snapshot the server reads the current status from Postgres on subscribe and the client sees the verdict.">
+          <defs>
+            <marker id="ar3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor"></path>
+            </marker>
+          </defs>
+          <text class="svg-head" x="40" y="26">PUB/SUB ALONE</text>
+          <text class="svg-head" x="420" y="26">PUB/SUB + CATCH-UP SNAPSHOT</text>
+
+          <rect class="svg-box" x="40" y="46" width="290" height="48" rx="5"></rect>
+          <text class="svg-label" x="60" y="76">Worker finishes, publishes "done"</text>
+          <rect class="svg-box" x="40" y="116" width="290" height="48" rx="5"></rect>
+          <text class="svg-label" x="60" y="146">Client's subscribe arrives</text>
+          <rect class="svg-box" x="40" y="186" width="290" height="48" rx="5"></rect>
+          <text class="svg-label" x="60" y="209">Nobody was listening —</text>
+          <text class="svg-label" x="60" y="226">the message is gone</text>
+          <rect class="svg-box" x="40" y="256" width="290" height="48" rx="5"></rect>
+          <text class="svg-label" x="60" y="286" fill="var(--bad)">Page hangs forever</text>
+
+          <rect class="svg-box" x="420" y="46" width="300" height="48" rx="5"></rect>
+          <text class="svg-label" x="440" y="76">Worker finishes, publishes "done"</text>
+          <rect class="svg-box" x="420" y="116" width="300" height="48" rx="5"></rect>
+          <text class="svg-label" x="440" y="146">Client's subscribe arrives</text>
+          <rect class="svg-box-accent" x="420" y="186" width="300" height="48" rx="5"></rect>
+          <text class="svg-label" x="440" y="209">Server reads the row from Postgres</text>
+          <text class="svg-label" x="440" y="226">and sends it straight back</text>
+          <rect class="svg-box" x="420" y="256" width="300" height="48" rx="5"></rect>
+          <text class="svg-label" x="440" y="286" fill="var(--ok)">Verdict shown immediately</text>
+
+          <g color="var(--faint)">
+            <line class="svg-edge-dead" x1="185" y1="94" x2="185" y2="112" marker-end="url(#ar3)"></line>
+            <line class="svg-edge-dead" x1="185" y1="164" x2="185" y2="182" marker-end="url(#ar3)"></line>
+            <line class="svg-edge-dead" x1="185" y1="234" x2="185" y2="252" marker-end="url(#ar3)"></line>
+          </g>
+          <g color="var(--accent)">
+            <line class="svg-edge-accent" x1="570" y1="94" x2="570" y2="112" marker-end="url(#ar3)"></line>
+            <line class="svg-edge-accent" x1="570" y1="164" x2="570" y2="182" marker-end="url(#ar3)"></line>
+            <line class="svg-edge-accent" x1="570" y1="234" x2="570" y2="252" marker-end="url(#ar3)"></line>
+          </g>
+
+          <text class="svg-sub" x="40" y="332">Same timing in both columns — the worker simply finished first.</text>
+          <text class="svg-sub" x="420" y="332">One extra step turns a lost broadcast into a database read.</text>
+        </svg>
+      </div>
+      <figcaption>Pub/Sub delivers only to whoever is listening at the instant a message is sent. A fast submission can finish before the client's subscribe message even lands, so the announcement fires into an empty room — and the page waits for something that already happened.</figcaption>
+    </figure>
+
+    <div class="col">
+      <p>The fix is one extra step: the moment a client subscribes, the server also reads that submission's current status directly from Postgres and sends it immediately. If grading already finished, the client learns the verdict from the database instead of from a broadcast it missed. If grading hasn't finished, the snapshot simply says <code>Queued</code> and the live update arrives normally later.</p>
+      <p>This is the payoff of having a source of truth: <strong>the live layer is fast but forgetful, the database is durable but polled.</strong> Combining "send current state on connect, then stream changes" is the standard shape for real-time systems, and it's the same reason the queue carries only an ID.</p>
+    </div>
+  </section>
+
+  <section id="next">
+    <span class="sec-num">07 — Being added next</span>
+    <div class="col">
+      <h2>Two extensions, and why they fit</h2>
+
+      <h3>The engine as a public API</h3>
+      <p>Because execution and grading are already separated, the engine can be exposed directly: <code>POST /api/v1/executions</code> takes a language, source, and stdin, and returns output plus resource usage. The website keeps its own session-authenticated routes under <code>/app/*</code>; the public API authenticates <em class="term">machines</em> with keys instead of humans with cookies.</p>
+      <p>That change is small in code and large in what it forces you to solve: hashed key storage, versioned routes, stable error codes, published documentation, and three separate protections that people often collapse into one — a <strong>rate limit</strong> (requests per minute), a <strong>quota</strong> (executions per day), and a <strong>concurrency cap</strong> (in-flight jobs per key). The third is the one that actually protects the system: a client submitting fifty slow jobs at a polite request rate can otherwise fill the queue and make everyone else wait.</p>
+
+      <h3>Empirical complexity analysis</h3>
+      <p>For an accepted submission, run it against generated inputs of increasing size, measure CPU time at each size, and fit the resulting curve against candidate models to report a <em>measured</em> growth rate. Wall-clock time is useless here — it includes scheduling noise and container startup — so the runner reads real CPU microseconds from the container's cgroup instead.</p>
+      <p>This is only possible because the execution layer is ours. It also introduces a second class of job, and that's the interesting infrastructure decision:</p>
+    </div>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 780 250" role="img" aria-label="Submissions flow through a submissions stream to judge workers; analysis requests flow through a separate analysis stream to analysis workers, so the two never contend.">
+          <defs>
+            <marker id="ar4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor"></path>
+            </marker>
+          </defs>
+          <text class="svg-head" x="20" y="24">LATENCY-SENSITIVE LANE</text>
+          <rect class="svg-box" x="20" y="38" width="150" height="52" rx="5"></rect>
+          <text class="svg-label" x="95" y="70" text-anchor="middle">Submission</text>
+          <rect class="svg-box" x="255" y="38" width="200" height="52" rx="5"></rect>
+          <text class="svg-label" x="355" y="62" text-anchor="middle">submissions:stream</text>
+          <text class="svg-sub" x="355" y="79" text-anchor="middle">1 execution per test case</text>
+          <rect class="svg-box" x="540" y="38" width="200" height="52" rx="5"></rect>
+          <text class="svg-label" x="640" y="70" text-anchor="middle">Judge workers</text>
+
+          <text class="svg-head" x="20" y="150">THROUGHPUT LANE</text>
+          <rect class="svg-box" x="20" y="164" width="150" height="52" rx="5"></rect>
+          <text class="svg-label" x="95" y="196" text-anchor="middle">Analyze request</text>
+          <rect class="svg-box-accent" x="255" y="164" width="200" height="52" rx="5"></rect>
+          <text class="svg-label" x="355" y="188" text-anchor="middle">analysis:stream</text>
+          <text class="svg-sub" x="355" y="205" text-anchor="middle">~30 executions per job</text>
+          <rect class="svg-box-accent" x="540" y="164" width="200" height="52" rx="5"></rect>
+          <text class="svg-label" x="640" y="196" text-anchor="middle">Analysis workers</text>
+
+          <g color="var(--border-strong)">
+            <line class="svg-edge" x1="170" y1="64" x2="251" y2="64" marker-end="url(#ar4)"></line>
+            <line class="svg-edge" x1="455" y1="64" x2="536" y2="64" marker-end="url(#ar4)"></line>
+          </g>
+          <g color="var(--accent)">
+            <line class="svg-edge-accent" x1="170" y1="190" x2="251" y2="190" marker-end="url(#ar4)"></line>
+            <line class="svg-edge-accent" x1="455" y1="190" x2="536" y2="190" marker-end="url(#ar4)"></line>
+          </g>
+        </svg>
+      </div>
+      <figcaption>One Redis instance, two streams, two consumer groups. A single analysis is roughly thirty executions; sharing a lane with grading would let one person's curiosity delay everyone else's verdict.</figcaption>
+    </figure>
+
+    <div class="callout">
+      <span class="lbl">Reported honestly</span>
+      <p>The result is a measurement, not a proof. Over a 32× range of input sizes, O(n) and O(n log n) are usually indistinguishable from each other within timing noise — so the interface says "measured growth: O(n) or O(n log n)" rather than picking one. Knowing where the method stops being reliable is the part worth demonstrating.</p>
+    </div>
+  </section>
+
+  <section id="say">
+    <span class="sec-num">08 — Interview answers</span>
+    <div class="col">
+      <h2>Say it out loud</h2>
+      <p>The same content, compressed into the answers these questions actually want.</p>
+    </div>
+
+    <div class="say">
+      <q>What did you build?</q>
+      <p>A sandboxed code execution engine, with an online judge built on top of it. Untrusted code runs in a throwaway container with hard memory and process limits and no network. Grading is asynchronous — the API writes the submission and pushes an ID onto a Redis stream, a worker pool picks it up, and results come back to the browser over WebSockets.</p>
+    </div>
+
+    <div class="say">
+      <q>Why is the API fast if judging is slow?</q>
+      <p>Because the API never judges. A submission is one INSERT and one XADD, both sub-millisecond, and then the request is done. All the expensive work happens in a separate worker process, so API latency doesn't scale with how expensive grading is.</p>
+    </div>
+
+    <div class="say">
+      <q>Why a queue rather than just calling the function?</q>
+      <p>Three reasons: it stops slow work from blocking the request thread, it survives a crash because an unacknowledged message stays in the consumer group's pending list and can be reclaimed, and it lets the API and the workers scale independently since they have completely different resource profiles.</p>
+    </div>
+
+    <div class="say">
+      <q>How do you stop someone's code from taking down the machine?</q>
+      <p>Namespaces control what it can see, cgroups control what it can use. Memory is capped by the memory cgroup, so the kernel OOM-kills it rather than the host running out; process count is capped by the pids cgroup, which is the fork-bomb defence; the network namespace has no interfaces at all; and it runs as a non-root user. On top of that there's an application-level wall-clock timeout, because cgroups limit CPU time consumed, not real time elapsed — an infinite sleep burns no CPU but never finishes.</p>
+    </div>
+
+    <div class="say">
+      <q>Tell me about a bug you found.</q>
+      <p>A race between finishing and subscribing. Pub/Sub only delivers to current listeners, and a trivial submission could be judged and announced before the client's WebSocket subscribe message even arrived — so the page waited forever for a broadcast that had already happened. I fixed it by sending a database-backed snapshot of the current status the moment a client subscribes, so the live channel is an optimisation rather than the only path.</p>
+    </div>
+
+    <div class="say">
+      <q>What would you do differently at scale?</q>
+      <p>Reclaim stale pending messages automatically with XAUTOCLAIM instead of leaving that to a manual path; run the workers on dedicated hosts, since mounting the Docker socket effectively grants root on the host and that's the real reason this can't run on shared hosting; and add per-tenant concurrency caps so one client can't monopolise the worker pool.</p>
+    </div>
+  </section>
+
+  <footer class="end">
+    <hr class="rule" style="margin-bottom:24px">
+    <p>Specs for the two extensions live in the repository at <code>docs/specs/public-api.md</code> and <code>docs/specs/complexity-analysis.md</code>. The build sequence is in <code>PLAN.md</code>.</p>
+  </footer>
+
+</div>
+
+</body>
+</html>

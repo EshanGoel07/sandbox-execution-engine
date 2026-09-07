@@ -1,0 +1,43 @@
+[
+  {
+    "title": "Sum of Two Numbers",
+    "timeLimitMs": 5000,
+    "statement": "Given two integers a and b, compute their sum.\n\nInput\nA single line containing two space-separated integers a and b.\n\nOutput\nPrint a single integer — the value of a + b.\n\nConstraints\n-1,000,000,000 <= a, b <= 1,000,000,000\n\nExample\nInput:\n1000000 2000000\nOutput:\n3000000\n\nThe two values are read from standard input; anything your program writes to standard output is compared against the expected answer (trailing whitespace and a trailing newline are ignored).",
+    "testCases": [
+      { "input": "1 2\n", "expectedOutput": "3" },
+      { "input": "10 20\n", "expectedOutput": "30" },
+      { "input": "-5 5\n", "expectedOutput": "0" },
+      { "input": "1000000 2000000\n", "expectedOutput": "3000000" }
+    ]
+  },
+  {
+    "title": "Reverse a String",
+    "timeLimitMs": 5000,
+    "statement": "Given a string s, print it with its characters in reverse order.\n\nInput\nA single line containing the string s. It consists of printable ASCII characters and has no leading or trailing spaces.\n\nOutput\nPrint s reversed, on one line.\n\nConstraints\n1 <= length of s <= 1000\n\nExample\nInput:\nhello\nOutput:\nolleh\n\nA palindrome such as \"racecar\" reverses to itself.",
+    "testCases": [
+      { "input": "hello\n", "expectedOutput": "olleh" },
+      { "input": "racecar\n", "expectedOutput": "racecar" },
+      { "input": "a\n", "expectedOutput": "a" }
+    ]
+  },
+  {
+    "title": "FizzBuzz (1..N)",
+    "timeLimitMs": 5000,
+    "statement": "Print the integers from 1 to N, one per line, with three substitutions:\n\n  - for a multiple of 3 (but not 5), print \"Fizz\" instead of the number;\n  - for a multiple of 5 (but not 3), print \"Buzz\" instead of the number;\n  - for a multiple of both 3 and 5, print \"FizzBuzz\".\n\nInput\nA single line containing one integer N.\n\nOutput\nExactly N lines. Line i holds either i or its Fizz / Buzz / FizzBuzz substitution.\n\nConstraints\n1 <= N <= 10000\n\nExample\nInput:\n5\nOutput:\n1\n2\nFizz\n4\nBuzz",
+    "testCases": [
+      { "input": "5\n", "expectedOutput": "1\n2\nFizz\n4\nBuzz" },
+      { "input": "3\n", "expectedOutput": "1\n2\nFizz" },
+      { "input": "15\n", "expectedOutput": "1\n2\nFizz\n4\nBuzz\nFizz\n7\n8\nFizz\nBuzz\n11\nFizz\n13\n14\nFizzBuzz" }
+    ]
+  },
+  {
+    "title": "Maximum of an Array",
+    "timeLimitMs": 5000,
+    "statement": "Given an array of n integers, print the largest value it contains.\n\nInput\nThe first line contains a single integer n — the number of elements.\nThe second line contains n space-separated integers.\n\nOutput\nPrint a single integer — the maximum element of the array.\n\nConstraints\n1 <= n <= 100000\n-1,000,000,000 <= each element <= 1,000,000,000\n\nExample\nInput:\n5\n3 1 4 1 5\nOutput:\n5\n\nAll values may be negative, in which case the answer is the one closest to zero — e.g. [-3, -1, -7, -2] has maximum -1.",
+    "testCases": [
+      { "input": "5\n3 1 4 1 5\n", "expectedOutput": "5" },
+      { "input": "1\n42\n", "expectedOutput": "42" },
+      { "input": "4\n-3 -1 -7 -2\n", "expectedOutput": "-1" }
+    ]
+  }
+]

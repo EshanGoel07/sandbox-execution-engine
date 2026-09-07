@@ -1,0 +1,20 @@
+{
+  "name": "@vj/infra",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Infrastructure adapters shared by the API and worker: Postgres access, the migration runner, the Redis connection factory, pub/sub, and the submission stream (enqueue side).",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -b",
+    "migrate": "ts-node src/migrate.ts",
+    "seed": "ts-node src/seed.ts"
+  },
+  "dependencies": {
+    "ioredis": "^6.0.0",
+    "pg": "^8.23.0"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.23.1"
+  }
+}

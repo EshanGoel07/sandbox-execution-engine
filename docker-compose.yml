@@ -1,0 +1,114 @@
+# One command — `docker compose up --build` — brings up the entire real
+# stack with full sandboxed code execution: Postgres, Redis, the API
+# gateway (DEMO_MODE off), the worker pool, and the frontend.
+#
+#   frontend  http://localhost:8080
+#   api       http://localhost:3000
+#   adminer   http://localhost:8081
+#
+# Requires a .env file (copy .env.example). JWT_SECRET has no default and
+# compose will refuse to start without it.
+#
+# The worker mounts the host Docker socket so it can build the judge-cpp /
+# judge-java / judge-python images and spawn one locked-down sandbox
+# container per submission.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    # Default superuser stays "postgres" (unchanged); only the password and db
+    # name come from the environment so nothing sensitive is committed.
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-judge}
+      POSTGRES_DB: ${POSTGRES_DB:-judge}
+    ports:
+      - "5432:5432"
+    volumes:
+      # Without this the database lives in the container's writable layer and
+      # `docker compose down` destroys it. The named volume outlives containers.
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d ${POSTGRES_DB:-judge}"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    command: sh -c "node packages/infra/dist/seed.js && node apps/api/dist/api-server.js"
+    environment:
+      PORT: "3000"
+      DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:-judge}@postgres:5432/${POSTGRES_DB:-judge}
+      PGSSL: disable
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set — copy .env.example to .env and set it}
+      # DEMO_MODE deliberately unset -> real execution
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: .
+      dockerfile: apps/worker/Dockerfile
+    environment:
+      DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:-judge}@postgres:5432/${POSTGRES_DB:-judge}
+      PGSSL: disable
+      REDIS_URL: redis://redis:6379
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-3}
+    volumes:
+      # Docker-out-of-Docker: the worker drives the host daemon to build the
+      # sandbox images and run one throwaway container per submission.
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        VITE_API_URL: http://localhost:3000
+    ports:
+      - "8080:80"
+    depends_on:
+      - api
+
+  # Browser-based DB viewer for development and demos. Local only — never
+  # expose this in a public deployment.
+  # http://localhost:8081 -> System: PostgreSQL, Server: postgres,
+  # User: postgres, Password: $POSTGRES_PASSWORD (.env), Database: $POSTGRES_DB
+  adminer:
+    image: adminer
+    ports:
+      - "8081:8080"
+    depends_on:
+      - postgres
+
+# Named volumes: managed by Docker, independent of container lifecycle.
+# `docker compose down` keeps them; `docker compose down -v` deletes them.
+volumes:
+  pgdata:
+  redisdata:

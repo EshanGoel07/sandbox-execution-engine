@@ -1,0 +1,27 @@
+{
+  "name": "@vj/api",
+  "version": "2.0.0",
+  "private": true,
+  "description": "HTTP API gateway + WebSocket hub + auth. Enqueues submissions; never executes them.",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -b",
+    "start": "node dist/api-server.js",
+    "dev": "ts-node src/api-server.ts"
+  },
+  "dependencies": {
+    "@vj/infra": "*",
+    "@vj/shared": "*",
+    "bcryptjs": "^2.4.3",
+    "express": "^5.2.1",
+    "jsonwebtoken": "^9.0.2",
+    "ws": "^8.21.3"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/express": "^5.0.6",
+    "@types/jsonwebtoken": "^9.0.7",
+    "@types/ws": "^8.18.1"
+  }
+}
