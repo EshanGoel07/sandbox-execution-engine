@@ -33,6 +33,12 @@ export async function createSandboxContainer(
     Cmd: ["sleep", "infinity"],
     HostConfig: {
       Memory: limits.memoryBytes,
+      // Memory+swap ceiling, set equal to Memory => zero swap. Left unset,
+      // Docker lets a container ALSO use swap equal to its memory limit on a
+      // host that has swap (Docker Desktop's VM does), so a "256 MB" box
+      // could really hold 512 MB. The limit is a public contract now, so it
+      // has to mean what it says.
+      MemorySwap: limits.memoryBytes,
       NetworkMode: "none",
       PidsLimit: limits.pidsLimit,
     },

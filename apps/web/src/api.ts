@@ -10,7 +10,7 @@ let RAW = (import.meta.env.VITE_API_URL ?? "").trim().replace(/\/$/, "");
 // scheme — assume https for anything that isn't already absolute.
 if (RAW && !/^https?:\/\//.test(RAW)) RAW = `https://${RAW}`;
 
-export const API_BASE = RAW || "/api";
+export const API_BASE = `${RAW || "/api"}/app`;
 
 export const WS_URL = RAW
   ? RAW.replace(/^http/, "ws") + "/ws"

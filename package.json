@@ -22,7 +22,9 @@
     "web": "npm run dev -w @vj/web",
     "test:engine": "npm run build && npm run test -w @vj/engine",
     "test:worker": "npm run build && npm run test -w @vj/worker",
-    "test:integration": "npm run build && JWT_SECRET=integration-test-secret SIGNUP_RATE_MAX=1000 LOGIN_RATE_MAX=1000 SUBMISSION_RATE_MAX=5 SUBMISSION_RATE_WINDOW_MS=60000 TS_NODE_PROJECT=tests/tsconfig.json ts-node tests/integration/submission-lifecycle.ts",
+    "test:integration": "npm run build && npm run test:lifecycle && npm run test:public-api",
+    "test:lifecycle": "JWT_SECRET=integration-test-secret SIGNUP_RATE_MAX=1000 LOGIN_RATE_MAX=1000 SUBMISSION_RATE_MAX=5 SUBMISSION_RATE_WINDOW_MS=60000 TS_NODE_PROJECT=tests/tsconfig.json ts-node tests/integration/submission-lifecycle.ts",
+    "test:public-api": "JWT_SECRET=integration-test-secret SIGNUP_RATE_MAX=1000 LOGIN_RATE_MAX=1000 MAX_ACTIVE_API_KEYS=2 TS_NODE_PROJECT=tests/tsconfig.json ts-node tests/integration/public-api.ts",
     "test": "npm run lint && npm run test:engine && npm run test:worker && npm run test:integration"
   },
   "devDependencies": {

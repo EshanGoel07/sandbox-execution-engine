@@ -12,7 +12,7 @@ import {
   getSubmissionStatus,
   getSubmissionOwnerId,
 } from "@vj/infra";
-import { verifyToken } from "./auth";
+import { verifyToken } from "./auth/session";
 
 export function attachWebSocketGateway(httpServer: Server): WebSocketServer {
   const wss = new WebSocketServer({ server: httpServer, path: "/ws" });

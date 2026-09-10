@@ -27,9 +27,12 @@ export { createRedis } from "./redis-conn";
 export { publishSubmissionUpdate, subscribeToSubmissionUpdates } from "./pubsub";
 
 export {
+  submissionQueue,
+  executionQueue,
   STREAM_KEY,
   GROUP_NAME,
   enqueueSubmission,
+  enqueueExecution,
   createConsumerConnection,
   ensureConsumerGroup,
   readNextSubmission,
@@ -38,4 +41,28 @@ export {
   pendingCount,
   closeStream,
 } from "./stream";
-export type { StreamMessage } from "./stream";
+export type { StreamMessage, StreamQueue, QueueMessage } from "./stream";
+
+export {
+  createApiKey,
+  listApiKeys,
+  revokeApiKey,
+  findApiKeyByHash,
+  touchApiKeyLastUsed,
+} from "./api-keys";
+export type { ApiKeySummary, ApiKeyIdentity } from "./api-keys";
+
+export {
+  createExecution,
+  getExecutionForUser,
+  getExecutionJob,
+  markExecutionRunning,
+  saveExecutionResult,
+  failExecution,
+} from "./executions";
+export type {
+  NewExecution,
+  ExecutionJob,
+  ExecutionResultRecord,
+  ExecutionRecord,
+} from "./executions";

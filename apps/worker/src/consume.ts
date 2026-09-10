@@ -34,26 +34,10 @@ import {
 import { isLanguage } from "@vj/shared";
 import type { GradeResult, Language } from "@vj/shared";
 import { gradeSubmission } from "./grader";
+import { RetryableError, isRetryable } from "./retry";
 
 export { createConsumerConnection } from "@vj/infra";
-
-/** Thrown for transient failures: the message is deliberately left unacked. */
-export class RetryableError extends Error {
-  constructor(readonly cause: unknown) {
-    super(cause instanceof Error ? cause.message : String(cause));
-    this.name = "RetryableError";
-  }
-}
-
-// Transient infrastructure failures — worth retrying, not worth converting to
-// a verdict. Everything else is treated as deterministic: retrying it would
-// just poison the queue.
-const RETRYABLE_RE =
-  /ECONNREFUSED|ECONNRESET|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|EPIPE|socket hang up|Cannot connect to the Docker daemon|connect ENOENT|Connection is closed|read ECONNRESET/i;
-
-function isRetryable(err: unknown): boolean {
-  return RETRYABLE_RE.test(err instanceof Error ? `${err.message}` : String(err));
-}
+export { RetryableError };
 
 function internalErrorResult(totalCount: number): GradeResult {
   return {

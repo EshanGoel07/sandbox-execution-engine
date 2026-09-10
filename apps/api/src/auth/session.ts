@@ -1,5 +1,7 @@
 /**
- * Password hashing (bcrypt) + stateless JWT auth for the API.
+ * Session auth for the /app tree (the judge web client): password hashing
+ * (bcrypt) + stateless JWT. The public /api/v1 tree uses API keys instead —
+ * see ./api-key.ts. Neither credential is accepted by the other tree.
  *
  * JWT rather than server sessions because the frontend is served from a
  * different origin than the API in the deployed demo — a bearer token in the

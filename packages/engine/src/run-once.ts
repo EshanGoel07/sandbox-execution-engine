@@ -1,11 +1,11 @@
 /**
  * Convenience for the one-shot case: create a session, compile, run a single
- * input, tear down. Used for ad-hoc "just run this" execution and by the
- * Milestone 1 regression tests.
+ * input, tear down. Used for ad-hoc "just run this" execution (the public
+ * execution API) and by the Milestone 1 regression tests.
  */
 import type { Language } from "@vj/shared";
 import { createSession } from "./session";
-import type { CompileOutcome, RunOutcome, RunOptions } from "./outcome";
+import type { CompileOutcome, RunOutcome, RunOptions, SessionOptions } from "./outcome";
 
 export interface RunOnceResult {
   compile: CompileOutcome;
@@ -17,9 +17,10 @@ export async function runOnce(
   language: Language,
   sourceCode: string,
   stdin: string,
-  opts: RunOptions
+  opts: RunOptions,
+  sessionOptions: SessionOptions = {}
 ): Promise<RunOnceResult> {
-  const session = await createSession(language, sourceCode);
+  const session = await createSession(language, sourceCode, sessionOptions);
   try {
     const compile = await session.compile();
     if (!compile.ok) return { compile, run: null };

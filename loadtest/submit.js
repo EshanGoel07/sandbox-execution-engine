@@ -9,10 +9,10 @@
  *
  * setup() signs up one user PER VU (a shared user would hit the per-user
  * submission limit; a user per iteration would hit the per-IP signup limit).
- * Every iteration then mirrors the frontend:
- *   1. GET  /problems                              (list)
- *   2. POST /submissions   (Authorization: Bearer)  (enqueue a real submission)
- *   3. GET  /submissions/:id  * N  (Bearer)         (poll until the worker is Done)
+ * Every iteration then mirrors the frontend (the judge's /app tree):
+ *   1. GET  /app/problems                              (list)
+ *   2. POST /app/submissions   (Authorization: Bearer)  (enqueue a real submission)
+ *   3. GET  /app/submissions/:id  * N  (Bearer)         (poll until the worker is Done)
  *
  * This exercises the whole path: API -> Redis Stream -> worker pool ->
  * Docker sandbox -> Postgres, plus the read side under concurrent load.
@@ -57,7 +57,7 @@ export function setup() {
   for (let i = 0; i < PEAK_VUS; i++) {
     const email = `loadtest+${Date.now()}-${i}@example.com`;
     const res = http.post(
-      `${API}/auth/signup`,
+      `${API}/app/auth/signup`,
       JSON.stringify({ email, password: "loadtest-password" }),
       { headers: { "Content-Type": "application/json" } }
     );
@@ -75,11 +75,11 @@ export default function (data) {
   };
   const authGet = { Authorization: `Bearer ${token}` };
 
-  const list = http.get(`${API}/problems`, { tags: { endpoint: "list" } });
+  const list = http.get(`${API}/app/problems`, { tags: { endpoint: "list" } });
   check(list, { "list 200": (r) => r.status === 200 });
 
   const post = http.post(
-    `${API}/submissions`,
+    `${API}/app/submissions`,
     JSON.stringify({ problemId: PROBLEM_ID, language: "python", sourceCode: SOLUTION, stdin: "" }),
     { headers: authJson, tags: { endpoint: "submit" } }
   );
@@ -90,7 +90,7 @@ export default function (data) {
   const startedAt = Date.now();
   let verdict = null;
   for (let i = 0; i < 40; i++) {
-    const got = http.get(`${API}/submissions/${submissionId}`, {
+    const got = http.get(`${API}/app/submissions/${submissionId}`, {
       headers: authGet,
       tags: { endpoint: "poll" },
     });

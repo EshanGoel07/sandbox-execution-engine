@@ -19,7 +19,8 @@ import { WorkerPool } from "@vj/worker";
 import { startApiServer } from "@vj/api";
 
 const PORT = 3099;
-const BASE_URL = `http://localhost:${PORT}`;
+// The judge's session-auth tree. (The WebSocket hub stays at /ws.)
+const BASE_URL = `http://localhost:${PORT}/app`;
 
 let authToken: string | null = null;
 

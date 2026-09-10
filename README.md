@@ -33,9 +33,9 @@ about problems, test cases or verdicts.
 - One throwaway Docker container per run: `256 MB` memory cgroup, `64` PID cap,
   `NetworkMode: none`, non-root `coderunner` user.
 - C++ (`gcc:13`), Java (`eclipse-temurin:21-jdk`), Python (`python:3.12-alpine`).
-- Distinguishes the ways a program can fail: OOM kill (read from Docker's
-  `OOMKilled` state, not guessed), wall-clock timeout, non-zero exit, and
-  compile failure.
+- Distinguishes the ways a program can fail: OOM kill (read from the kernel's
+  cgroup `oom_kill` counter, not guessed from the exit code), wall-clock
+  timeout, non-zero exit, and compile failure (itself under a wall-clock cap).
 
 **The grading pipeline** turns that into verdicts.
 
@@ -93,7 +93,8 @@ profile with solved count, acceptance rate and submission history.
 | Queue payload is **just a `submissionId`** | Postgres is the source of truth, so a worker always grades current DB state, and the queue stays cheap regardless of submission size. |
 | One Redis connection **per worker consumer** | ioredis serializes commands per connection; a blocking `XREADGROUP` on a shared connection would stall every other consumer. |
 | **Compile once, run many** | One persistent sandbox container per submission (`sleep infinity` + `exec`), compiled once, then one `exec` per test case — not N containers / N recompiles. |
-| **Stop at first failing test** | Matches real judges, saves compute, and avoids a trap: Docker's `OOMKilled` flag is set at the container level and stays set, so reusing a container after an MLE could mislabel a later test. |
+| **Stop at first failing test** | Matches real judges and saves compute. |
+| OOM read from the **kernel's cgroup counter**, not Docker's flag | Docker's `OOMKilled` is set asynchronously from an event stream — measured, 11 of 12 OOM kills still read `false` right after the program died — and stays set for the container's lifetime. The cgroup v2 `oom_kill` counter is incremented as part of the kill, and comparing it per run attributes each kill to the run that caused it. |
 | Worker → API over **Redis Pub/Sub** (separate processes) | The worker and the API scale and fail independently. They don't call each other; they exchange `{submissionId, status}` messages. |
 | **One** Redis subscriber for the whole API, fanned out in-process | A `SUBSCRIBE` puts a connection in subscriber-only mode. One subscriber → a `Map<submissionId, Set<socket>>` is all that's needed; the update only has to reach the process once. |
 | **Snapshot + subscribe** on WS connect | A client can subscribe *after* the worker already finished, and would hang forever. On subscribe, the hub registers for live pushes *and* sends a DB-backed status snapshot. |

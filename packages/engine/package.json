@@ -7,7 +7,7 @@
   "types": "dist/index.d.ts",
   "scripts": {
     "build": "tsc -b",
-    "test": "ts-node test/outcomes.test.ts && ts-node test/run-once.test.ts && ts-node test/tle.test.ts"
+    "test": "ts-node test/outcomes.test.ts && ts-node test/run-once.test.ts && ts-node test/tle.test.ts && ts-node test/limits.test.ts"
   },
   "dependencies": {
     "dockerode": "^5.0.1",

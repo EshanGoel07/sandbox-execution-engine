@@ -67,6 +67,11 @@ services:
       # directly), so leave trust-proxy off. Set to the proxy hop count on a
       # host that terminates TLS in front of the API.
       TRUST_PROXY: ${TRUST_PROXY:-}
+      # Public API (/api/v1): unset -> code defaults (5 active keys per
+      # account; executions up to 5000 ms / 256 MB).
+      MAX_ACTIVE_API_KEYS: ${MAX_ACTIVE_API_KEYS:-}
+      EXECUTION_MAX_TIME_MS: ${EXECUTION_MAX_TIME_MS:-}
+      EXECUTION_MAX_MEMORY_MB: ${EXECUTION_MAX_MEMORY_MB:-}
       # DEMO_MODE deliberately unset -> real execution
     ports:
       - "3000:3000"
@@ -85,6 +90,9 @@ services:
       PGSSL: disable
       REDIS_URL: redis://redis:6379
       WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-3}
+      # Separate consumers for public-API executions (their own stream), so
+      # API traffic can never take grading capacity, or the reverse.
+      EXECUTION_WORKER_CONCURRENCY: ${EXECUTION_WORKER_CONCURRENCY:-2}
     volumes:
       # Docker-out-of-Docker: the worker drives the host daemon to build the
       # sandbox images and run one throwaway container per submission.
