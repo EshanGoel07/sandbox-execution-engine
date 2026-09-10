@@ -13,7 +13,7 @@
   "scripts": {
     "build": "tsc -b",
     "clean": "tsc -b --clean",
-    "lint": "node scripts/check-boundaries.mjs",
+    "lint": "node scripts/check-boundaries.mjs && node scripts/check-sdk-types.mjs",
     "typecheck": "tsc -b && npm run typecheck -w @vj/web",
     "migrate": "npm run migrate -w @vj/infra",
     "seed": "npm run seed -w @vj/infra",
@@ -22,14 +22,18 @@
     "web": "npm run dev -w @vj/web",
     "test:engine": "npm run build && npm run test -w @vj/engine",
     "test:worker": "npm run build && npm run test -w @vj/worker",
-    "test:integration": "npm run build && npm run test:lifecycle && npm run test:public-api",
+    "test:integration": "npm run build && npm run test:lifecycle && npm run test:public-api && npm run test:public-api-limits",
     "test:lifecycle": "JWT_SECRET=integration-test-secret SIGNUP_RATE_MAX=1000 LOGIN_RATE_MAX=1000 SUBMISSION_RATE_MAX=5 SUBMISSION_RATE_WINDOW_MS=60000 TS_NODE_PROJECT=tests/tsconfig.json ts-node tests/integration/submission-lifecycle.ts",
-    "test:public-api": "JWT_SECRET=integration-test-secret SIGNUP_RATE_MAX=1000 LOGIN_RATE_MAX=1000 MAX_ACTIVE_API_KEYS=2 TS_NODE_PROJECT=tests/tsconfig.json ts-node tests/integration/public-api.ts",
+    "test:public-api": "JWT_SECRET=integration-test-secret SIGNUP_RATE_MAX=1000 LOGIN_RATE_MAX=1000 MAX_ACTIVE_API_KEYS=2 API_RATE_LIMIT_MAX=100000 API_MAX_CONCURRENT_EXECUTIONS=50 TS_NODE_PROJECT=tests/tsconfig.json ts-node tests/integration/public-api.ts",
+    "test:public-api-limits": "JWT_SECRET=integration-test-secret SIGNUP_RATE_MAX=1000 LOGIN_RATE_MAX=1000 API_RATE_LIMIT_MAX=5 API_RATE_LIMIT_WINDOW_MS=3000 API_MAX_CONCURRENT_EXECUTIONS=2 API_DAILY_EXECUTION_QUOTA=4 TS_NODE_PROJECT=tests/tsconfig.json ts-node tests/integration/public-api-limits.ts",
     "test": "npm run lint && npm run test:engine && npm run test:worker && npm run test:integration"
   },
   "devDependencies": {
     "@types/node": "^26.4.0",
+    "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1",
     "ts-node": "^10.9.2",
-    "typescript": "^5.6.3"
+    "typescript": "^5.6.3",
+    "yaml": "^2.9.0"
   }
 }

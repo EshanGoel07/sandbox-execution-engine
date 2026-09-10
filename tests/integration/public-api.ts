@@ -14,6 +14,13 @@
  *     truncated output
  *   - executions are scoped to the account (another account gets 404; the
  *     same account's other key can read them), and a revoked key is refused
+ *   - the contract: every /api/v1 response body is validated against
+ *     openapi.yaml, and every authenticated response carries X-RateLimit-*
+ *   - the TypeScript SDK, end to end against the real server
+ *   - usage is recorded per key and rolled up by GET /app/api-keys/:id/usage
+ *
+ * The usage controls themselves (429s) are exercised in public-api-limits.ts;
+ * here they are raised out of the way (see the npm script).
  *
  * Requires Postgres + Redis + Docker running, and JWT_SECRET set (the npm
  * script sets it, plus MAX_ACTIVE_API_KEYS=2 so the cap is cheap to hit).
@@ -21,7 +28,9 @@
 import { createHash } from "crypto";
 import { runMigrations, pool, executionQueue } from "@vj/infra";
 import { WorkerPool, processOneExecution } from "@vj/worker";
-import { startApiServer } from "@vj/api";
+import { startApiServer, flushUsage } from "@vj/api";
+import { VirtualJudge, VirtualJudgeError } from "@vj/sdk";
+import { contractViolation } from "./contract";
 
 const PORT = 3098;
 const ROOT = `http://localhost:${PORT}`;
@@ -64,11 +73,17 @@ async function main() {
     console.log(`FAIL: ${msg}`);
     allPass = false;
   };
+  /** Asserts a response body matches the named openapi.yaml schema. */
+  const contract = (label: string, body: unknown, schema: string) => {
+    const violation = contractViolation(schema, body);
+    if (violation) fail(`${label}: response does not match openapi.yaml ${schema}: ${violation}`);
+  };
   /** Asserts the uniform error envelope with a specific status + code. */
   const expectError = (label: string, r: Res, status: number, code: string) => {
     if (r.status !== status || r.body?.error?.code !== code || typeof r.body?.error?.message !== "string") {
       fail(`${label}: expected ${status} ${code}, got ${r.status} ${JSON.stringify(r.body)}`);
     }
+    contract(label, r.body, "Error");
   };
 
   if (!Number.isInteger(KEY_CAP) || KEY_CAP < 2) {
@@ -174,6 +189,10 @@ async function main() {
     // --- languages -------------------------------------------------------------
     const langs = await call("GET", "/api/v1/languages", { bearer: key1 });
     if (langs.status !== 200) fail(`GET /api/v1/languages returned ${langs.status}`);
+    contract("languages", langs.body, "LanguageList");
+    for (const h of ["x-ratelimit-limit", "x-ratelimit-remaining", "x-ratelimit-reset"]) {
+      if (!/^\d+$/.test(langs.headers.get(h) ?? "")) fail(`authenticated response is missing ${h}`);
+    }
     const ids = (langs.body?.data ?? []).map((l: any) => l.id).sort();
     if (JSON.stringify(ids) !== JSON.stringify(["cpp", "java", "python"])) fail(`languages: ${JSON.stringify(ids)}`);
     if (JSON.stringify(langs.body).includes("judge-")) fail("languages leaks sandbox image names");
@@ -296,6 +315,7 @@ async function main() {
       if (r.status !== 202) fail(`${CASES[i].name}: POST returned ${r.status} ${JSON.stringify(r.body)}`);
       if (r.body?.status !== "queued") fail(`${CASES[i].name}: 202 body should say queued`);
       if (!/^exec_[0-9A-Za-z]{22}$/.test(r.body?.id)) fail(`${CASES[i].name}: bad id ${r.body?.id}`);
+      contract(`${CASES[i].name} 202`, r.body, "ExecutionCreated");
       if (r.headers.get("location") !== `/api/v1/executions/${r.body?.id}`)
         fail(`${CASES[i].name}: Location header ${r.headers.get("location")}`);
       ids202.push(r.body?.id);
@@ -316,6 +336,8 @@ async function main() {
           }
           if (r.body.status !== "completed" && r.body.result !== null)
             fail(`${CASES[i].name}: result must be null until completed`);
+          // Every state the client can observe — queued, running, completed.
+          contract(`${CASES[i].name} (${r.body.status})`, r.body, "Execution");
           if (r.body.status === "completed" || r.body.status === "failed") finals[i] = r.body;
         })
       );
@@ -346,6 +368,60 @@ async function main() {
     const afterUse = await call("GET", "/app/api-keys", { bearer: jwtA });
     const used = afterUse.body.find((k: any) => k.id === created1.body.id);
     if (!used?.last_used_at) fail("last_used_at was not recorded for the key");
+
+    // --- the SDK, against the real server -------------------------------------------
+    const sdk = new VirtualJudge({ apiKey: key3, baseUrl: ROOT });
+    const sdkLanguages = await sdk.listLanguages();
+    if (sdkLanguages.length !== 3) fail(`sdk.listLanguages returned ${sdkLanguages.length}`);
+    const polledStatuses: string[] = [];
+    const viaSdk = await sdk.run(
+      {
+        language: "cpp",
+        source_code: `#include <iostream>\nint main(){int a,b;std::cin>>a>>b;std::cout<<a+b;}`,
+        stdin: "20 22",
+      },
+      { onPoll: (e) => polledStatuses.push(e.status), timeoutMs: 60_000 }
+    );
+    if (viaSdk.result?.outcome !== "ok" || viaSdk.result.stdout !== "42")
+      fail(`sdk.run: expected ok/42, got ${JSON.stringify(viaSdk.result)}`);
+    if (polledStatuses[polledStatuses.length - 1] !== "completed")
+      fail(`sdk.waitFor should end on completed, saw ${polledStatuses.join(" → ")}`);
+    else console.log(`ok: SDK run (${polledStatuses.join(" → ")})`);
+
+    const sdkError = async (label: string, fn: () => Promise<unknown>, status: number, code: string) => {
+      try {
+        await fn();
+        fail(`${label}: expected a VirtualJudgeError`);
+      } catch (err) {
+        if (!(err instanceof VirtualJudgeError) || err.status !== status || err.code !== code)
+          fail(`${label}: expected ${status} ${code}, got ${String(err)}`);
+      }
+    };
+    await sdkError("sdk invalid language", () => sdk.createExecution({ language: "rust", source_code: "x" }), 400, "invalid_language");
+    await sdkError("sdk unknown execution", () => sdk.getExecution(`exec_${"A".repeat(22)}`), 404, "not_found");
+
+    // --- usage is attributed per key ----------------------------------------------
+    // Written off the request path in batches; flush now rather than wait a tick.
+    await flushUsage();
+    const rawEndpoints = await pool.query(
+      "SELECT DISTINCT endpoint FROM api_usage WHERE api_key_id = $1",
+      [created1.body.id]
+    );
+    if (rawEndpoints.rows.some((r) => r.endpoint.includes("exec_")))
+      fail("api_usage stored a raw execution id in endpoint — it should be the route pattern");
+
+    const usage1 = await call("GET", `/app/api-keys/${created1.body.id}/usage`, { bearer: jwtA });
+    const today1 = usage1.body?.days?.[usage1.body.days.length - 1];
+    // key1: 7 accepted executions; 9 rejected requests (6×400, 1×413, 2×404).
+    if (today1?.executions_created !== 7 || today1?.errors !== 9 || today1?.throttled !== 0)
+      fail(`usage for key1 should be 7 created / 9 errors / 0 throttled, got ${JSON.stringify(today1)}`);
+    const usage3 = await call("GET", `/app/api-keys/${created3.body.id}/usage`, { bearer: jwtA });
+    const today3 = usage3.body?.days?.[usage3.body.days.length - 1];
+    // key3 (same account): its own SDK execution only — usage is not pooled across keys.
+    if (today3?.executions_created !== 1)
+      fail(`usage for key3 should show its 1 execution, got ${JSON.stringify(today3)}`);
+    const notYours = await call("GET", `/app/api-keys/${created1.body.id}/usage`, { bearer: jwtB });
+    if (notYours.status !== 404) fail(`another account's key usage should be 404, got ${notYours.status}`);
 
     // --- revocation -------------------------------------------------------------
     await call("DELETE", `/app/api-keys/${created1.body.id}`, { bearer: jwtA });

@@ -66,3 +66,25 @@ export const EXECUTION_MEMORY_MB = {
 // stdin rides in the JSON body next to the source; cap it separately so the
 // error names the field that's too big.
 export const MAX_STDIN_BYTES = envInt("MAX_STDIN_BYTES", 64 * 1024);
+
+// --- /api/v1 usage controls (per ACCOUNT — see MAX_ACTIVE_API_KEYS above) -----
+// Free-tier values. There is no plans table: every account gets these, and
+// each is env-overridable (the load test and the limits test lower/raise them).
+
+// Requests of any kind, per sliding window. Polling GETs count too, so this
+// has to leave room for a client waiting on a few executions at once.
+export const API_RATE_LIMIT_MAX = envInt("API_RATE_LIMIT_MAX", 120);
+export const API_RATE_LIMIT_WINDOW_MS = envInt("API_RATE_LIMIT_WINDOW_MS", 60 * 1000);
+
+// Executions accepted per UTC day.
+export const API_DAILY_EXECUTION_QUOTA = envInt("API_DAILY_EXECUTION_QUOTA", 1000);
+
+// Executions queued or running at once. This is what stops one account from
+// filling the executions queue and starving everyone else's.
+export const API_MAX_CONCURRENT_EXECUTIONS = envInt("API_MAX_CONCURRENT_EXECUTIONS", 3);
+
+// How long an in-flight slot can outlive its execution if the worker never
+// frees it (a crash). Must exceed any real queue wait + compile + run, or a
+// slow-but-alive execution's slot would be reclaimed early and the account
+// could briefly exceed its cap. Only matters after a crash.
+export const API_INFLIGHT_TTL_MS = envInt("API_INFLIGHT_TTL_MS", 10 * 60 * 1000);

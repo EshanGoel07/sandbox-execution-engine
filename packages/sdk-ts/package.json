@@ -1,0 +1,16 @@
+{
+  "name": "@vj/sdk",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Typed TypeScript client for the Virtual Judge execution API. Zero runtime dependencies; uses the platform fetch (Node 18+, browsers).",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -b",
+    "generate": "openapi-typescript ../../openapi.yaml -o src/generated/openapi.ts",
+    "example": "ts-node examples/quickstart.ts"
+  },
+  "devDependencies": {
+    "openapi-typescript": "^7.13.0"
+  }
+}

@@ -67,11 +67,17 @@ services:
       # directly), so leave trust-proxy off. Set to the proxy hop count on a
       # host that terminates TLS in front of the API.
       TRUST_PROXY: ${TRUST_PROXY:-}
-      # Public API (/api/v1): unset -> code defaults (5 active keys per
-      # account; executions up to 5000 ms / 256 MB).
+      # Public API (/api/v1): unset -> code defaults. Per account: 5 active
+      # keys, 120 requests/min, 1000 executions/day, 3 in flight; each
+      # execution up to 5000 ms / 256 MB. The load test raises the request
+      # limit from the shell — see loadtest/README.md.
       MAX_ACTIVE_API_KEYS: ${MAX_ACTIVE_API_KEYS:-}
       EXECUTION_MAX_TIME_MS: ${EXECUTION_MAX_TIME_MS:-}
       EXECUTION_MAX_MEMORY_MB: ${EXECUTION_MAX_MEMORY_MB:-}
+      API_RATE_LIMIT_MAX: ${API_RATE_LIMIT_MAX:-}
+      API_RATE_LIMIT_WINDOW_MS: ${API_RATE_LIMIT_WINDOW_MS:-}
+      API_DAILY_EXECUTION_QUOTA: ${API_DAILY_EXECUTION_QUOTA:-}
+      API_MAX_CONCURRENT_EXECUTIONS: ${API_MAX_CONCURRENT_EXECUTIONS:-}
       # DEMO_MODE deliberately unset -> real execution
     ports:
       - "3000:3000"

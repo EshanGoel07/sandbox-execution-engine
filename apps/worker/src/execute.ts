@@ -10,6 +10,10 @@
  * Failure handling mirrors the grading consumer (see consume.ts):
  * transient infrastructure errors leave the message pending for retry;
  * anything deterministic becomes a terminal `failed` status and is ACKed.
+ *
+ * Every terminal path frees the account's in-flight slot (the concurrency
+ * cap) BEFORE acking. A retryable failure keeps the slot: the execution is
+ * still in flight, just waiting for another attempt.
  */
 import type Redis from "ioredis";
 import {
@@ -17,6 +21,7 @@ import {
   failExecution,
   getExecutionJob,
   markExecutionRunning,
+  releaseExecutionSlot,
   saveExecutionResult,
 } from "@vj/infra";
 import type { ExecutionResultRecord } from "@vj/infra";
@@ -94,11 +99,17 @@ export async function processOneExecution(
     return null;
   }
 
+  // Terminal: free the account's concurrency slot, then ACK.
+  const finish = async () => {
+    await releaseExecutionSlot(job.userId, executionId);
+    await executionQueue.ack(id, client);
+  };
+
   // The API validates the language before inserting, so this only fires for a
   // row written some other way. Terminal, not retryable.
   if (!isLanguage(job.language)) {
     await failExecution(executionId, `Unsupported language "${job.language}".`);
-    await executionQueue.ack(id, client);
+    await finish();
     return { id, executionId, status: "failed", result: null };
   }
 
@@ -118,11 +129,11 @@ export async function processOneExecution(
     if (isRetryable(err)) throw new RetryableError(err);
     console.error(`[${consumerName}] execution ${executionId} internal error:`, err);
     await failExecution(executionId, err instanceof Error ? err.message : String(err));
-    await executionQueue.ack(id, client);
+    await finish();
     return { id, executionId, status: "failed", result: null };
   }
 
   await saveExecutionResult(executionId, result);
-  await executionQueue.ack(id, client);
+  await finish();
   return { id, executionId, status: "completed", result };
 }

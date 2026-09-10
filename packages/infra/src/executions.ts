@@ -21,6 +21,8 @@ export interface NewExecution {
 
 /** Everything a worker needs to run the job. */
 export interface ExecutionJob {
+  /** The owning account — the worker frees this account's in-flight slot when done. */
+  userId: number;
   language: string;
   sourceCode: string;
   stdin: string;
@@ -116,13 +118,14 @@ export async function getExecutionForUser(
 
 export async function getExecutionJob(executionId: string): Promise<ExecutionJob | null> {
   const result = await pool.query(
-    `SELECT language, source_code, stdin, time_limit_ms, memory_limit_mb
+    `SELECT user_id, language, source_code, stdin, time_limit_ms, memory_limit_mb
      FROM executions WHERE id = $1`,
     [executionId]
   );
   if (result.rows.length === 0) return null;
   const row = result.rows[0];
   return {
+    userId: row.user_id,
     language: row.language,
     sourceCode: row.source_code,
     stdin: row.stdin,

@@ -66,3 +66,18 @@ export type {
   ExecutionResultRecord,
   ExecutionRecord,
 } from "./executions";
+
+export {
+  checkRateLimit,
+  acquireExecutionSlot,
+  releaseExecutionSlot,
+  refundExecutionSlot,
+  utcDay,
+  rateLimitKey,
+  inflightKey,
+  quotaKey,
+} from "./limits";
+export type { RateLimitDecision, AcquireResult } from "./limits";
+
+export { insertUsageBatch, getApiKeyUsage } from "./usage";
+export type { UsageRecord, ApiKeyUsageDay } from "./usage";

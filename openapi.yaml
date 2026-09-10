@@ -1,0 +1,351 @@
+openapi: 3.1.0
+info:
+  title: Virtual Judge Execution API
+  version: 1.0.0
+  description: |
+    Run untrusted code in a locked-down sandbox: one throwaway container per
+    execution, cgroup-enforced memory and PID limits, no network, a non-root
+    user, and a wall-clock kill.
+
+    The API is **asynchronous**. `POST /api/v1/executions` queues the run and
+    answers `202` immediately; poll `GET /api/v1/executions/{id}` until
+    `status` is `completed` or `failed`. (The TypeScript SDK's `waitFor` does
+    the polling for you.)
+
+    This API exposes execution only — no problems, test cases or grading.
+
+    ## Authentication
+    Every request needs `Authorization: Bearer vj_live_...`. Keys are created
+    by the account holder with a session token — they cannot be created with
+    another key:
+
+    1. `POST /app/auth/login` with `{"email", "password"}` → `{"token"}`
+    2. `POST /app/api-keys` with `Authorization: Bearer <token>` and
+       `{"name": "..."}` → the full key, **shown exactly once**
+
+    ## Limits
+    Enforced per **account**, shared by all of its keys:
+
+    | control | default | error code |
+    |---|---|---|
+    | requests per 60 s (sliding window, every endpoint) | 120 | `rate_limited` |
+    | executions accepted per UTC day | 1000 | `quota_exceeded` |
+    | executions queued or running at once | 3 | `concurrency_limited` |
+
+    All three answer `429` with a `Retry-After` header. Every authenticated
+    response carries `X-RateLimit-Limit`, `X-RateLimit-Remaining` and
+    `X-RateLimit-Reset`.
+
+    ## Errors
+    Every error is `{"error": {"code", "message"}}`. Switch on `code` — it is
+    stable. `message` is for humans and may change.
+servers:
+  - url: http://localhost:3000
+    description: Local docker-compose stack
+security:
+  - apiKey: []
+tags:
+  - name: Executions
+  - name: Languages
+
+paths:
+  /api/v1/languages:
+    get:
+      tags: [Languages]
+      operationId: listLanguages
+      summary: List supported languages
+      responses:
+        "200":
+          description: Supported languages.
+          headers:
+            X-RateLimit-Limit: { $ref: "#/components/headers/X-RateLimit-Limit" }
+            X-RateLimit-Remaining: { $ref: "#/components/headers/X-RateLimit-Remaining" }
+            X-RateLimit-Reset: { $ref: "#/components/headers/X-RateLimit-Reset" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LanguageList" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "500": { $ref: "#/components/responses/Internal" }
+
+  /api/v1/executions:
+    post:
+      tags: [Executions]
+      operationId: createExecution
+      summary: Queue code for execution
+      description: |
+        Validates the request, reserves one unit of the account's daily quota
+        and one in-flight slot, queues the run, and returns immediately.
+        Limits outside the allowed range are rejected, never silently clamped.
+        Unknown fields are rejected.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateExecutionRequest" }
+            example:
+              language: python
+              source_code: "a, b = map(int, input().split())\nprint(a + b)"
+              stdin: "3 4\n"
+              limits: { time_ms: 2000, memory_mb: 128 }
+      responses:
+        "202":
+          description: Queued.
+          headers:
+            Location:
+              description: URL of the new execution.
+              schema: { type: string }
+            X-RateLimit-Limit: { $ref: "#/components/headers/X-RateLimit-Limit" }
+            X-RateLimit-Remaining: { $ref: "#/components/headers/X-RateLimit-Remaining" }
+            X-RateLimit-Reset: { $ref: "#/components/headers/X-RateLimit-Reset" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ExecutionCreated" }
+        "400": { $ref: "#/components/responses/InvalidRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "413": { $ref: "#/components/responses/SourceTooLarge" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "500": { $ref: "#/components/responses/Internal" }
+        "503": { $ref: "#/components/responses/ExecutionDisabled" }
+
+  /api/v1/executions/{id}:
+    get:
+      tags: [Executions]
+      operationId: getExecution
+      summary: Get an execution's status and result
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { $ref: "#/components/schemas/ExecutionId" }
+      responses:
+        "200":
+          description: |
+            The execution. `result` is `null` until `status` is `completed`.
+            Readable by any key of the account that created it.
+          headers:
+            X-RateLimit-Limit: { $ref: "#/components/headers/X-RateLimit-Limit" }
+            X-RateLimit-Remaining: { $ref: "#/components/headers/X-RateLimit-Remaining" }
+            X-RateLimit-Reset: { $ref: "#/components/headers/X-RateLimit-Reset" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Execution" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "500": { $ref: "#/components/responses/Internal" }
+
+components:
+  securitySchemes:
+    apiKey:
+      type: http
+      scheme: bearer
+      bearerFormat: "vj_live_ + 43 base62 characters"
+      description: "An API key, sent as `Authorization: Bearer vj_live_...`. Never in a URL."
+
+  headers:
+    X-RateLimit-Limit:
+      description: Requests allowed per rate-limit window, for this account.
+      schema: { type: integer }
+    X-RateLimit-Remaining:
+      description: Requests left in the current window.
+      schema: { type: integer }
+    X-RateLimit-Reset:
+      description: Unix time (seconds) when the oldest counted request leaves the window, i.e. when Remaining next increases.
+      schema: { type: integer }
+    Retry-After:
+      description: Seconds to wait before retrying.
+      schema: { type: integer }
+
+  responses:
+    InvalidRequest:
+      description: "`invalid_request` (malformed body, unknown field, out-of-range limit, stdin too large) or `invalid_language`."
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Unauthorized:
+      description: "`unauthorized` (missing, malformed or unknown key) or `key_revoked`."
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    NotFound:
+      description: "`not_found` — also returned for another account's execution, so an id's existence is never confirmed."
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    SourceTooLarge:
+      description: "`source_too_large` — `source_code` exceeds 64 KiB, or `invalid_request` for a body over 256 KB."
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    TooManyRequests:
+      description: "`rate_limited`, `quota_exceeded` or `concurrency_limited` (the last two only when creating an execution)."
+      headers:
+        Retry-After: { $ref: "#/components/headers/Retry-After" }
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    ExecutionDisabled:
+      description: "`execution_disabled` — this deployment does not execute code."
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Internal:
+      description: "`internal`"
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+
+  schemas:
+    Error:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          type: object
+          additionalProperties: false
+          required: [code, message]
+          properties:
+            code: { $ref: "#/components/schemas/ErrorCode" }
+            message: { type: string }
+
+    ErrorCode:
+      type: string
+      enum:
+        - unauthorized
+        - key_revoked
+        - rate_limited
+        - quota_exceeded
+        - concurrency_limited
+        - invalid_request
+        - invalid_language
+        - source_too_large
+        - not_found
+        - execution_disabled
+        - internal
+
+    LanguageId:
+      type: string
+      enum: [cpp, java, python]
+
+    Language:
+      type: object
+      additionalProperties: false
+      required: [id, name, version, notes]
+      properties:
+        id: { $ref: "#/components/schemas/LanguageId" }
+        name: { type: string, examples: ["C++"] }
+        version: { type: string, examples: ["GCC 13"] }
+        notes:
+          description: Anything a caller must know to get code to run at all.
+          type: [string, "null"]
+
+    LanguageList:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/Language" }
+
+    ExecutionId:
+      type: string
+      pattern: "^exec_[0-9A-Za-z]{22}$"
+
+    Limits:
+      type: object
+      additionalProperties: false
+      required: [time_ms, memory_mb]
+      properties:
+        time_ms:
+          description: Wall-clock limit for the run, in milliseconds.
+          type: integer
+          minimum: 100
+          maximum: 5000
+        memory_mb:
+          description: Memory limit (no swap), in MiB.
+          type: integer
+          minimum: 32
+          maximum: 256
+
+    CreateExecutionRequest:
+      type: object
+      additionalProperties: false
+      required: [language, source_code]
+      properties:
+        language:
+          description: A language id from `GET /api/v1/languages`. An unknown id is `invalid_language`.
+          type: string
+        source_code:
+          description: At most 64 KiB (UTF-8 bytes).
+          type: string
+        stdin:
+          description: Standard input for the run. At most 64 KiB. Defaults to "".
+          type: string
+        limits:
+          description: Each omitted limit defaults to its maximum.
+          type: object
+          additionalProperties: false
+          properties:
+            time_ms: { type: integer, minimum: 100, maximum: 5000 }
+            memory_mb: { type: integer, minimum: 32, maximum: 256 }
+
+    ExecutionStatus:
+      description: "`failed` means the service could not run it; a program that ran and failed is `completed` with a non-`ok` outcome."
+      type: string
+      enum: [queued, running, completed, failed]
+
+    ExecutionOutcome:
+      type: string
+      enum: [ok, compile_error, runtime_error, timeout, out_of_memory]
+
+    ExecutionCreated:
+      type: object
+      additionalProperties: false
+      required: [id, status, created_at]
+      properties:
+        id: { $ref: "#/components/schemas/ExecutionId" }
+        status: { type: string, const: queued }
+        created_at: { type: string, format: date-time }
+
+    ExecutionResult:
+      type: object
+      additionalProperties: false
+      required: [outcome, exit_code, stdout, stderr, compile_output, output_truncated, wall_time_ms]
+      properties:
+        outcome: { $ref: "#/components/schemas/ExecutionOutcome" }
+        exit_code:
+          description: "`null` when the program never ran (compile_error) or was killed at the time limit."
+          type: [integer, "null"]
+        stdout: { type: string }
+        stderr: { type: string }
+        compile_output:
+          description: Compiler output, including warnings on a successful compile. Empty for interpreted languages.
+          type: string
+        output_truncated:
+          description: True if stdout or stderr passed 1 MiB and was cut off.
+          type: boolean
+        wall_time_ms:
+          description: Elapsed time of the run. `null` when it never ran (compile_error).
+          type: [integer, "null"]
+
+    Execution:
+      type: object
+      additionalProperties: false
+      required: [id, status, language, limits, created_at, started_at, completed_at, result]
+      properties:
+        id: { $ref: "#/components/schemas/ExecutionId" }
+        status: { $ref: "#/components/schemas/ExecutionStatus" }
+        language: { $ref: "#/components/schemas/LanguageId" }
+        limits:
+          description: The limits the run actually got, after defaults.
+          allOf: [{ $ref: "#/components/schemas/Limits" }]
+        created_at: { type: string, format: date-time }
+        started_at: { type: [string, "null"], format: date-time }
+        completed_at: { type: [string, "null"], format: date-time }
+        result:
+          oneOf:
+            - { $ref: "#/components/schemas/ExecutionResult" }
+            - { type: "null" }

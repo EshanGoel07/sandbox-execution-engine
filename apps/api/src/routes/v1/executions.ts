@@ -10,9 +10,20 @@
  */
 import { Router } from "express";
 import { isLanguage } from "@vj/shared";
-import { createExecution, enqueueExecution, failExecution, getExecutionForUser } from "@vj/infra";
+import {
+  acquireExecutionSlot,
+  createExecution,
+  enqueueExecution,
+  failExecution,
+  getExecutionForUser,
+  refundExecutionSlot,
+  utcDay,
+} from "@vj/infra";
 import type { ExecutionRecord } from "@vj/infra";
 import {
+  API_DAILY_EXECUTION_QUOTA,
+  API_INFLIGHT_TTL_MS,
+  API_MAX_CONCURRENT_EXECUTIONS,
   DEMO_MODE,
   EXECUTION_MEMORY_MB,
   EXECUTION_TIME_MS,
@@ -29,6 +40,11 @@ const EXECUTION_ID_RE = /^exec_[0-9A-Za-z]{22}$/;
 // ~131 random bits: unguessable, and says nothing about how many exist.
 function newExecutionId(): string {
   return `exec_${randomBase62(22)}`;
+}
+
+function secondsUntilNextUtcMidnight(now = new Date()): number {
+  const next = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1);
+  return Math.max(1, Math.ceil((next - now.getTime()) / 1000));
 }
 
 /** The wire shape of an execution. snake_case throughout, like every /api/v1 body. */
@@ -91,23 +107,63 @@ export function executionsRouter(): Router {
     const timeLimitMs = body.limits?.time_ms ?? EXECUTION_TIME_MS.max;
     const memoryLimitMb = body.limits?.memory_mb ?? EXECUTION_MEMORY_MB.max;
 
-    const { createdAt } = await createExecution({
-      id,
+    // Quota + concurrency, per account, checked and consumed in one atomic
+    // step — and only now, after validation, so a malformed request never
+    // spends quota.
+    const day = utcDay();
+    const slot = await acquireExecutionSlot({
       userId,
-      apiKeyId,
-      language: body.language,
-      sourceCode: body.source_code,
-      stdin,
-      timeLimitMs,
-      memoryLimitMb,
+      executionId: id,
+      day,
+      maxConcurrent: API_MAX_CONCURRENT_EXECUTIONS,
+      dailyQuota: API_DAILY_EXECUTION_QUOTA,
+      inflightTtlMs: API_INFLIGHT_TTL_MS,
     });
+    if (!slot.ok && slot.reason === "quota_exceeded") {
+      res.setHeader("Retry-After", String(secondsUntilNextUtcMidnight()));
+      throw new ApiError(
+        429,
+        "quota_exceeded",
+        `Daily quota of ${API_DAILY_EXECUTION_QUOTA} executions used up. It resets at 00:00 UTC.`
+      );
+    }
+    if (!slot.ok) {
+      // No exact time to offer: a slot frees when one of this account's
+      // executions finishes, typically within seconds.
+      res.setHeader("Retry-After", "1");
+      throw new ApiError(
+        429,
+        "concurrency_limited",
+        `This account already has ${API_MAX_CONCURRENT_EXECUTIONS} executions queued or running. ` +
+          "Retry when one of them completes."
+      );
+    }
+
+    let createdAt: string;
+    try {
+      ({ createdAt } = await createExecution({
+        id,
+        userId,
+        apiKeyId,
+        language: body.language,
+        sourceCode: body.source_code,
+        stdin,
+        timeLimitMs,
+        memoryLimitMb,
+      }));
+    } catch (err) {
+      await refundExecutionSlot(userId, id, day).catch(() => {});
+      throw err;
+    }
 
     try {
       await enqueueExecution(id);
     } catch (err) {
       // The row exists but no worker will ever see it. Mark it terminal so a
-      // client polling this id gets `failed` instead of `queued` forever.
+      // client polling this id gets `failed` instead of `queued` forever, and
+      // hand back the slot and the quota unit it never used.
       await failExecution(id, "Could not enqueue the execution.").catch(() => {});
+      await refundExecutionSlot(userId, id, day).catch(() => {});
       throw err;
     }
 

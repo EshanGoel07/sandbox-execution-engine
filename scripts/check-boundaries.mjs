@@ -15,7 +15,12 @@
  *   │ apps/api        │ @vj/shared, @vj/infra      (enqueues; never runs)  │
  *   │ apps/worker     │ @vj/shared, @vj/infra, @vj/engine                  │
  *   │ apps/web        │ @vj/shared ONLY  (talks to the API over HTTP)      │
+ *   │ packages/sdk-ts │ (nothing internal — a standalone public client)    │
  *   └─────────────────┴────────────────────────────────────────────────────┘
+ *
+ * The SDK is held to the strictest rule: it is what an outside developer
+ * would install, so it may not reach into any server package. Its types come
+ * from openapi.yaml, not from @vj/shared.
  *
  * Two things are checked:
  *   1. every `@vj/*` import is on its package's allow-list;
@@ -36,6 +41,8 @@ const ALLOW = {
   "apps/api": new Set(["@vj/shared", "@vj/infra"]),
   "apps/worker": new Set(["@vj/shared", "@vj/infra", "@vj/engine"]),
   "apps/web": new Set(["@vj/shared"]),
+  // Only its own published name (examples/ import it the way a user would).
+  "packages/sdk-ts": new Set(["@vj/sdk"]),
 };
 
 const IMPORT_RE =

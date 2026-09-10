@@ -4,7 +4,8 @@
  *   /app/*     the judge web client     session auth (JWT)   routes/app
  *   /api/v1/*  the public execution API API-key auth         routes/v1
  *
- * plus /health and the /ws WebSocket hub (session-auth'd per subscribe frame).
+ * plus /health, the /ws WebSocket hub (session-auth'd per subscribe frame),
+ * and the public API's docs at /api/docs (no auth — see docs.ts).
  *
  * One process rather than two services: a second deployment would double the
  * ops surface for no benefit at this scale. The separation that matters is
@@ -19,6 +20,7 @@ import { attachWebSocketGateway } from "./ws-hub";
 import { DEMO_MODE } from "./config";
 import { appRouter } from "./routes/app";
 import { v1Router } from "./routes/v1";
+import { docsRouter } from "./docs";
 
 export { DEMO_MODE };
 
@@ -45,7 +47,12 @@ export function buildApp(): express.Express {
     res.header("Access-Control-Allow-Origin", "*");
     res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
     res.header("Access-Control-Allow-Methods", "GET,POST,DELETE,OPTIONS");
-    res.header("Access-Control-Expose-Headers", "Location");
+    // Without this a browser client can't read these off a cross-origin
+    // response — the SDK's waitFor honours Retry-After.
+    res.header(
+      "Access-Control-Expose-Headers",
+      "Location, Retry-After, X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset"
+    );
     next();
   });
   app.options(/.*/, (_req, res) => res.sendStatus(204));
@@ -56,6 +63,7 @@ export function buildApp(): express.Express {
 
   app.use("/app", appRouter());
   app.use("/api/v1", v1Router());
+  app.use(docsRouter());
 
   return app;
 }

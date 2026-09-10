@@ -19,5 +19,7 @@ COPY --from=build /repo/packages/infra/dist ./packages/infra/dist
 COPY --from=build /repo/apps/api/package.json ./apps/api/package.json
 COPY --from=build /repo/apps/api/dist ./apps/api/dist
 COPY db ./db
+# The public API's spec, served at /api/openapi.yaml and rendered at /api/docs.
+COPY openapi.yaml ./openapi.yaml
 EXPOSE 3000
 CMD ["node", "apps/api/dist/api-server.js"]

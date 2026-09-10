@@ -10,6 +10,7 @@
     { "path": "../packages/shared" },
     { "path": "../packages/infra" },
     { "path": "../packages/engine" },
+    { "path": "../packages/sdk-ts" },
     { "path": "../apps/api" },
     { "path": "../apps/worker" }
   ],
