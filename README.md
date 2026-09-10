@@ -24,6 +24,8 @@ API in front of it all.
 client are complete and tested. Empirical complexity analysis is next — see
 [Roadmap](#roadmap).
 
+![Demo](docs/demo.gif)
+
 > **There is no hosted demo, deliberately.** Executing arbitrary code from the
 > internet needs a dedicated, isolated Docker host — it is not something to put
 > on shared free hosting. The whole stack runs locally with one command; see
